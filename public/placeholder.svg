@@ -1,0 +1,14 @@
+<svg width="120" height="120" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="GitVerse placeholder mark">
+  <g fill="none" stroke="#6f6b96" stroke-width="5" stroke-linecap="round">
+    <path d="M40 28 V92"></path>
+    <path d="M40 46 H80 V70"></path>
+  </g>
+  <g fill="#6f6b96">
+    <circle cx="40" cy="28" r="10"></circle>
+    <circle cx="40" cy="46" r="5"></circle>
+    <circle cx="80" cy="46" r="9"></circle>
+    <circle cx="40" cy="70" r="5"></circle>
+    <circle cx="80" cy="70" r="9"></circle>
+    <circle cx="40" cy="92" r="10"></circle>
+  </g>
+</svg>
