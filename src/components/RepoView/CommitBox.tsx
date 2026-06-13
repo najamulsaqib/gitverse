@@ -1,3 +1,6 @@
+import { useState } from "react";
+import { Avatar } from "@/components/shared/Avatar";
+import { IcUserPlus, IcX } from "@/components/shared/icons";
 import { useProfilesStore } from "@/store/profiles";
 import { useReposStore } from "@/store/repos";
 
@@ -13,6 +16,10 @@ export function CommitBox() {
   const setSummary = useReposStore((s) => s.setSummary);
   const setDesc = useReposStore((s) => s.setDesc);
   const commit = useReposStore((s) => s.commit);
+  const coAuthors = useReposStore((s) => s.coAuthors);
+  const addCoAuthor = useReposStore((s) => s.addCoAuthor);
+  const removeCoAuthor = useReposStore((s) => s.removeCoAuthor);
+  const [coAuthorInput, setCoAuthorInput] = useState("");
 
   const account = accounts.find((a) => a.id === activeId) ?? accounts[0];
   const stagedCount = files.filter((f) => f.staged).length;
@@ -20,35 +27,17 @@ export function CommitBox() {
 
   return (
     <div className="flex-none border-t border-border-soft p-3 flex flex-col gap-2.5 bg-[#13111f]">
-      <div
-        key={identityPulse}
-        className={`relative flex items-center gap-2.5 px-2.75 py-2.25 rounded-[10px] ${identityPulse > 0 ? "animate-id-pulse" : ""}`}
-        style={{
-          background: `color-mix(in srgb, ${account.color} 12%, transparent)`,
-          border: `1px solid color-mix(in srgb, ${account.color} 36%, transparent)`,
-          "--pulse-color": account.color,
-        } as React.CSSProperties}
-      >
+      <div className="flex items-center gap-2.5">
         <div
-          className="w-8.5 h-8.5 rounded-[10px] grid place-items-center text-[#0b0a16] font-bold text-[12.5px] flex-none"
-          style={{ background: `linear-gradient(150deg, ${account.color}, ${account.color}bb)` }}
+          key={identityPulse}
+          className={`rounded-[9.6px] flex-none ${identityPulse > 0 ? "animate-id-pulse" : ""}`}
+          style={{ "--pulse-color": account.color } as React.CSSProperties}
         >
-          {account.initials}
+          <Avatar acc={account} size={20} />
         </div>
-        <div className="flex-1 min-w-0 leading-[1.32]">
-          <div className="text-[12px] text-text-2">
-            Committing as <strong className="text-text font-semibold">{account.name}</strong>
-          </div>
-          <div className="text-[11.5px] text-text-3 whitespace-nowrap overflow-hidden text-ellipsis">
-            {account.email} · <span style={{ color: account.color }}>{account.label}</span>
-          </div>
-        </div>
-        <div
-          className="font-mono text-[10px] flex-none rounded-[5px] px-1.5 py-0.5 tracking-[-0.01em]"
-          style={{ color: account.color, border: `1px solid color-mix(in srgb, ${account.color} 40%, transparent)` }}
-          title="This identity is written into .git/config for this commit"
-        >
-          .gitconfig
+        <div className="flex-1 min-w-0 text-[12.5px] whitespace-nowrap overflow-hidden text-ellipsis">
+          <span className="text-text font-semibold">{account.name}</span>
+          <span className="text-text-3"> · {account.email}</span>
         </div>
       </div>
       <div className="flex flex-col gap-1.75">
@@ -65,8 +54,38 @@ export function CommitBox() {
           onChange={(e) => setDesc(e.target.value)}
         />
       </div>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <IcUserPlus s={14} className="text-text-3 flex-none" />
+        {coAuthors.map((email) => (
+          <span
+            key={email}
+            className="flex items-center gap-1.25 pl-2.25 pr-1.25 py-0.75 rounded-full bg-surface border border-border text-[11.5px] text-text-2"
+          >
+            {email}
+            <button
+              className="grid place-items-center text-text-3 transition-colors hover:text-text"
+              title="Remove co-author"
+              onClick={() => removeCoAuthor(email)}
+            >
+              <IcX s={10} sw={2} />
+            </button>
+          </span>
+        ))}
+        <input
+          className="flex-1 min-w-32 bg-transparent border-none outline-none text-[12.5px] text-text placeholder:text-text-3"
+          placeholder="Add co-author email"
+          value={coAuthorInput}
+          onChange={(e) => setCoAuthorInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            const email = coAuthorInput.trim();
+            if (email) addCoAuthor(email);
+            setCoAuthorInput("");
+          }}
+        />
+      </div>
       <button
-        className="bg-linear-to-b from-indigo to-[#6a61dd] text-white font-semibold text-[13px] py-2.75 rounded-[9px] transition-all shadow-[0_6px_18px_-8px_rgba(123,114,232,0.8)] enabled:hover:brightness-110 disabled:bg-surface-2 disabled:text-text-3 disabled:shadow-none disabled:cursor-not-allowed"
+        className="bg-linear-to-b from-indigo to-[#6a61dd] text-white font-semibold text-[13px] py-2.75 rounded-[9px] transition-all shadow-[0_6px_18px_-8px_rgba(123,114,232,0.8)] enabled:hover:brightness-110 disabled:bg-none disabled:bg-surface-2 disabled:text-text-3 disabled:shadow-none disabled:cursor-not-allowed"
         disabled={!canCommit}
         onClick={commit}
       >

@@ -18,6 +18,7 @@ interface ReposState {
   filter: string;
   summary: string;
   desc: string;
+  coAuthors: string[];
 
   selectRepo: (id: RepoId) => void;
   selectBranch: (name: string) => void;
@@ -28,6 +29,8 @@ interface ReposState {
   setFilter: (filter: string) => void;
   setSummary: (summary: string) => void;
   setDesc: (desc: string) => void;
+  addCoAuthor: (email: string) => void;
+  removeCoAuthor: (email: string) => void;
   runSync: () => void;
   commit: () => void;
 }
@@ -44,6 +47,7 @@ export const useReposStore = create<ReposState>((set, get) => ({
   filter: "",
   summary: "",
   desc: "",
+  coAuthors: [],
 
   selectRepo: (id) => {
     const state = get();
@@ -93,6 +97,11 @@ export const useReposStore = create<ReposState>((set, get) => ({
   setFilter: (filter) => set({ filter }),
   setSummary: (summary) => set({ summary }),
   setDesc: (desc) => set({ desc }),
+
+  addCoAuthor: (email) =>
+    set((state) => (state.coAuthors.includes(email) ? state : { coAuthors: [...state.coAuthors, email] })),
+
+  removeCoAuthor: (email) => set((state) => ({ coAuthors: state.coAuthors.filter((e) => e !== email) })),
 
   toggleFile: (path) =>
     set((state) => ({
@@ -168,7 +177,7 @@ export const useReposStore = create<ReposState>((set, get) => ({
 
   commit: () => {
     const state = get();
-    const { repoId, summary, filesByRepo, historyByRepo, syncByRepo, branchByRepo, repos } = state;
+    const { repoId, summary, filesByRepo, historyByRepo, syncByRepo, branchByRepo, repos, coAuthors } = state;
     const files = filesByRepo[repoId];
     const staged = files.filter((f) => f.staged);
     if (staged.length === 0 || !summary.trim()) return;
@@ -204,11 +213,15 @@ export const useReposStore = create<ReposState>((set, get) => ({
       syncByRepo: { ...syncByRepo, [repoId]: { ...syncByRepo[repoId], ahead: syncByRepo[repoId].ahead + 1 } },
       summary: "",
       desc: "",
+      coAuthors: [],
     });
+
+    let sub = `${staged.length} file${staged.length !== 1 ? "s" : ""} · ${account.email}`;
+    if (coAuthors.length) sub += ` · +${coAuthors.length} co-author${coAuthors.length !== 1 ? "s" : ""}`;
 
     useUiStore.getState().showToast({
       title: `Committed as ${account.label}`,
-      sub: `${staged.length} file${staged.length !== 1 ? "s" : ""} · ${account.email}`,
+      sub,
       color: account.color,
     });
   },

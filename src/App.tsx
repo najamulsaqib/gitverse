@@ -14,7 +14,10 @@ function App() {
   const toast = useUiStore((s) => s.toast);
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[radial-gradient(1200px_700px_at_18%_-10%,#1a1636_0%,#0a0913_55%,#07060d_100%)]">
+    <div
+      className="h-screen w-screen overflow-hidden bg-[radial-gradient(1200px_700px_at_18%_-10%,#1a1636_0%,#0a0913_55%,#07060d_100%)]"
+      onContextMenu={(e) => e.preventDefault()}
+    >
       <div className="relative flex w-full h-full bg-bg overflow-hidden">
         <AccountRail />
         <div className="flex-1 flex flex-col min-w-0">
