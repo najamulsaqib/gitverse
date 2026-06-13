@@ -112,3 +112,11 @@ export const IcSettings = (p: IconProps) => (
     <path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8 3.4 3.4" />
   </I>
 );
+
+export const IcUserPlus = (p: IconProps) => (
+  <I {...p}>
+    <circle cx="6.5" cy="5.5" r="2.5" />
+    <path d="M2 14c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4" />
+    <path d="M12.5 4.5v4M10.5 6.5h4" />
+  </I>
+);
