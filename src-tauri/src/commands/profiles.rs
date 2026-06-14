@@ -41,7 +41,10 @@ pub fn add_profile(app: tauri::AppHandle, profile: Profile) -> Result<ProfilesDa
     let mut data = read_profiles(&app)?;
 
     if data.profiles.iter().any(|p| p.id == profile.id) {
-        return Err(format!("a profile with id \"{}\" already exists", profile.id));
+        return Err(format!(
+            "a profile with id \"{}\" already exists",
+            profile.id
+        ));
     }
 
     let is_first = data.profiles.is_empty();
