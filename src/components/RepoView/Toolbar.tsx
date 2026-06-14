@@ -31,7 +31,7 @@ export function Toolbar() {
   const syncPhase = useUiStore((s) => s.syncPhase);
 
   const repo = repos.find((r) => r.id === repoId)!;
-  const owner = accounts.find((a) => a.id === repo.owner)!;
+  const owner = accounts.find((a) => a.id === repo.owner) ?? accounts[0];
   const { ahead, behind } = sync;
   const branches = (BRANCHES[repoId] || []).map((b) => ({ ...b, current: b.name === branch }));
 
@@ -67,7 +67,7 @@ export function Toolbar() {
           onClick={() => setOpenMenu(openMenu === "repo" ? null : "repo")}
           aria-expanded={openMenu === "repo"}
         >
-          <span className="grid place-items-center flex-none text-text-2" style={{ color: owner.color }}>
+          <span className="grid place-items-center flex-none text-text-2" style={{ color: owner?.color }}>
             {repo.private ? <IcLock /> : <IcGlobe />}
           </span>
           <span className="flex flex-col justify-center flex-1 min-w-0 leading-[1.3]">

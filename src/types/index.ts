@@ -15,6 +15,19 @@ export interface Account {
   fp: string;
 }
 
+export interface SshKeyInfo {
+  name: string;
+  keyType: string;
+  publicKey: string;
+  comment: string;
+  fingerprint: string;
+}
+
+export interface ProfilesData {
+  profiles: Account[];
+  activeId: string | null;
+}
+
 export interface Repo {
   id: string;
   name: string;
