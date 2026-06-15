@@ -5,9 +5,10 @@ import type { Branch } from "@/types";
 interface BranchMenuProps {
   branches: Branch[];
   onPick: (name: string) => void;
+  onNewBranch: (name: string) => void;
 }
 
-export function BranchMenu({ branches, onPick }: BranchMenuProps) {
+export function BranchMenu({ branches, onPick, onNewBranch }: BranchMenuProps) {
   const [q, setQ] = useState("");
   const items = branches.filter((b) => b.name.toLowerCase().includes(q.toLowerCase()));
 
@@ -46,9 +47,9 @@ export function BranchMenu({ branches, onPick }: BranchMenuProps) {
       </div>
       <button
         className="flex items-center gap-2 w-full px-3.5 py-2.75 border-t border-border-soft text-[12.5px] font-medium text-indigo-light hover:bg-indigo/8"
-        onClick={() => onPick(q || "new-branch")}
+        onClick={() => onNewBranch(q.trim())}
       >
-        <IcPlus s={13} /> New branch{q ? ` “${q}”` : ""}
+        <IcPlus s={13} /> {q.trim() ? `New branch “${q.trim()}”…` : "New branch…"}
       </button>
     </div>
   );

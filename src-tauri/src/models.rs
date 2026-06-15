@@ -25,6 +25,107 @@ pub struct ProfilesData {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct Repo {
+    pub id: String,
+    pub name: String,
+    pub owner: String,
+    pub branch: String,
+    pub path: String,
+    pub private: bool,
+    pub remote: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReposData {
+    pub repos: Vec<Repo>,
+    pub active_id: Option<String>,
+}
+
+/// What `validate_repo` reports back for the confirmation step.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoCandidate {
+    pub name: String,
+    pub path: String,
+    pub branch: String,
+    pub remote: String,
+}
+
+// ---- live git data (mirrors src/types/index.ts) ----
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileChange {
+    pub path: String,
+    pub status: String,
+    pub staged: bool,
+    pub add: u32,
+    pub del: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoStatus {
+    pub branch: String,
+    pub ahead: u32,
+    pub behind: u32,
+    pub upstream: bool,
+    pub files: Vec<FileChange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitRef {
+    pub name: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub head: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Commit {
+    pub hash: String,
+    pub subject: String,
+    pub by: String,
+    pub when: String,
+    pub add: u32,
+    pub del: u32,
+    pub files: u32,
+    pub lane: u32,
+    pub parents: Vec<String>,
+    pub refs: Vec<CommitRef>,
+    pub flag: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Branch {
+    pub name: String,
+    pub current: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitFileChange {
+    pub path: String,
+    pub status: String,
+    pub add: u32,
+    pub del: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffLine {
+    pub t: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub n: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub a: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SshKeyInfo {
     pub name: String,
     pub key_type: String,

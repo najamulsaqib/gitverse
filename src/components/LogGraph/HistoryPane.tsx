@@ -1,6 +1,7 @@
-import { LANE_COLORS } from "@/data/mockData";
 import { useProfilesStore } from "@/store/profiles";
 import { useReposStore } from "@/store/repos";
+
+const LANE_COLORS = ["#7b72e8", "#1dccb2", "#e0a94e", "#c4c0ff"];
 
 const ROW = 42;
 const LANE = 16;
@@ -10,7 +11,7 @@ const R = 4.5;
 export function HistoryPane() {
   const accounts = useProfilesStore((s) => s.accounts);
   const repoId = useReposStore((s) => s.repoId);
-  const commits = useReposStore((s) => s.historyByRepo[repoId]);
+  const commits = useReposStore((s) => s.historyByRepo[repoId]) ?? [];
   const selected = useReposStore((s) => s.selCommit);
   const onSelect = useReposStore((s) => s.selectCommit);
 

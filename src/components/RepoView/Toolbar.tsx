@@ -1,10 +1,9 @@
 import { BranchMenu } from "@/components/RepoView/BranchMenu";
-import { RepoMenu } from "@/components/RepoView/RepoMenu";
 import { IcArrowDn, IcArrowUp, IcBranch, IcChevron, IcGlobe, IcLock, IcSync } from "@/components/shared/icons";
-import { BRANCHES } from "@/data/mockData";
 import { useProfilesStore } from "@/store/profiles";
 import { useReposStore } from "@/store/repos";
 import { useUiStore } from "@/store/ui";
+import { useClickOutside } from "@/hooks/useClickOutside";
 
 function ToolbarButton({ className = "", children, ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
@@ -22,22 +21,27 @@ export function Toolbar() {
   const repos = useReposStore((s) => s.repos);
   const repoId = useReposStore((s) => s.repoId);
   const branch = useReposStore((s) => s.branchByRepo[repoId]);
+  const branches = useReposStore((s) => s.branchesByRepo[repoId]);
   const sync = useReposStore((s) => s.syncByRepo[repoId]);
-  const selectRepo = useReposStore((s) => s.selectRepo);
   const selectBranch = useReposStore((s) => s.selectBranch);
   const runSync = useReposStore((s) => s.runSync);
+  const repoSidebarOpen = useUiStore((s) => s.repoSidebarOpen);
+  const toggleRepoSidebar = useUiStore((s) => s.toggleRepoSidebar);
   const openMenu = useUiStore((s) => s.openMenu);
   const setOpenMenu = useUiStore((s) => s.setOpenMenu);
+  const branchRef = useClickOutside<HTMLDivElement>(() => setOpenMenu(null));
+  const openNewBranch = useUiStore((s) => s.openNewBranch);
   const syncPhase = useUiStore((s) => s.syncPhase);
 
-  const repo = repos.find((r) => r.id === repoId)!;
+  const repo = repos.find((r) => r.id === repoId);
+  if (!repo) return null;
   const owner = accounts.find((a) => a.id === repo.owner) ?? accounts[0];
-  const { ahead, behind } = sync;
-  const branches = (BRANCHES[repoId] || []).map((b) => ({ ...b, current: b.name === branch }));
+  const ahead = sync?.ahead ?? 0;
+  const behind = sync?.behind ?? 0;
 
   let syncLabel = "Fetch origin";
   let SyncIcon = IcSync;
-  let syncSub = `Last fetched ${sync.lastFetch}`;
+  let syncSub = sync?.lastFetch ?? "";
   if (syncPhase === "fetching") {
     syncLabel = "Fetching…";
     syncSub = "Contacting origin";
@@ -61,12 +65,9 @@ export function Toolbar() {
 
   return (
     <div className="h-14 flex-none flex items-stretch bg-[#13111f] border-b border-border-soft">
-      {/* Repository */}
-      <div className="relative flex items-stretch w-86 flex-none border-r border-border-soft">
-        <ToolbarButton
-          onClick={() => setOpenMenu(openMenu === "repo" ? null : "repo")}
-          aria-expanded={openMenu === "repo"}
-        >
+      {/* Repository — toggles the repositories side panel */}
+      <div className="flex items-stretch w-86 flex-none border-r border-border-soft">
+        <ToolbarButton onClick={toggleRepoSidebar} aria-expanded={repoSidebarOpen}>
           <span className="grid place-items-center flex-none text-text-2" style={{ color: owner?.color }}>
             {repo.private ? <IcLock /> : <IcGlobe />}
           </span>
@@ -80,19 +81,10 @@ export function Toolbar() {
           </span>
           <IcChevron s={13} className="ml-auto text-text-3 flex-none" />
         </ToolbarButton>
-        {openMenu === "repo" && (
-          <RepoMenu
-            current={repo}
-            onPick={(id) => {
-              selectRepo(id as typeof repoId);
-              setOpenMenu(null);
-            }}
-          />
-        )}
       </div>
 
       {/* Branch */}
-      <div className="relative flex items-stretch flex-1 min-w-0 border-r border-border-soft">
+      <div ref={branchRef} className="relative flex items-stretch flex-1 min-w-0 border-r border-border-soft">
         <ToolbarButton
           onClick={() => setOpenMenu(openMenu === "branch" ? null : "branch")}
           aria-expanded={openMenu === "branch"}
@@ -105,18 +97,19 @@ export function Toolbar() {
               Current Branch
             </span>
             <span className="text-[13.5px] font-semibold text-text whitespace-nowrap overflow-hidden text-ellipsis">
-              {branch}
+              {branch ?? "—"}
             </span>
           </span>
           <IcChevron s={13} className="ml-auto text-text-3 flex-none" />
         </ToolbarButton>
         {openMenu === "branch" && (
           <BranchMenu
-            branches={branches}
+            branches={branches ?? []}
             onPick={(n) => {
               selectBranch(n);
               setOpenMenu(null);
             }}
+            onNewBranch={openNewBranch}
           />
         )}
       </div>

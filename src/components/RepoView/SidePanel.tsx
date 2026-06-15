@@ -8,7 +8,7 @@ export function SidePanel() {
   const tab = useUiStore((s) => s.tab);
   const setTab = useUiStore((s) => s.setTab);
   const repoId = useReposStore((s) => s.repoId);
-  const files = useReposStore((s) => s.filesByRepo[repoId]);
+  const files = useReposStore((s) => s.filesByRepo[repoId]) ?? [];
 
   return (
     <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden bg-[#13111f]">
