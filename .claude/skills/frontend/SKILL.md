@@ -37,6 +37,14 @@ restructure existing components/slices while you're in there.
 - **State:** local component state (`useState`) for view-only UI; Zustand
   (`src/store/`) for anything shared across components (active profile,
   selected repo/branch, pinned repos).
+- **Prefer HTML/CSS over `useEffect`.** If a behavior can be expressed
+  declaratively with an HTML attribute or CSS, do that instead of reaching for
+  `useEffect` + DOM manipulation. E.g. disable autocorrect via
+  `autocorrect`/`autocapitalize`/`spellcheck` attributes (set once on `<body>`
+  in `index.html` since they inherit) rather than a focus listener; use `:focus`,
+  `:hover`, `scroll-behavior`, etc. in CSS rather than effects. Reserve
+  `useEffect` for things genuinely outside React's render (subscriptions,
+  timers, imperative APIs).
 - **Dark mode only — no `dark:` variants, no light theme, ever.**
   `color-scheme: dark` is already set globally in `src/App.css`. Use the
   palette defined via `@theme` in `src/App.css` (sampled from

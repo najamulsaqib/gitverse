@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DiffView } from "@/components/RepoView/DiffView";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { COMMIT_CHANGES, DIFFS } from "@/data/mockData";
-import type { Account, Commit, CommitFileChange } from "@/types";
+import { gitCommitChanges, gitCommitDiff } from "@/hooks/useGit";
+import type { Account, Commit, CommitFileChange, DiffLine } from "@/types";
 
 interface CommitFileRowProps {
   f: CommitFileChange;
@@ -40,39 +40,70 @@ function CommitFileRow({ f, selected, onSelect }: CommitFileRowProps) {
 interface CommitDetailProps {
   commit: Commit;
   account: Account;
+  repoPath: string;
 }
 
-export function CommitDetail({ commit, account }: CommitDetailProps) {
-  const changes = commit.changes || COMMIT_CHANGES[commit.hash] || [];
-  const [sel, setSel] = useState<string | null>(changes[0]?.path ?? null);
-  const cur = changes.find((c) => c.path === sel) || changes[0];
+export function CommitDetail({ commit, account, repoPath }: CommitDetailProps) {
+  const [changes, setChanges] = useState<CommitFileChange[]>([]);
+  const [sel, setSel] = useState<string | null>(null);
+  const [diff, setDiff] = useState<DiffLine[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    gitCommitChanges(repoPath, commit.hash)
+      .then((c) => {
+        if (!alive) return;
+        setChanges(c);
+        setSel(c[0]?.path ?? null);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setChanges([]);
+        setSel(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [repoPath, commit.hash]);
+
+  const cur = changes.find((c) => c.path === sel) ?? changes[0];
+
+  useEffect(() => {
+    if (!cur) {
+      setDiff([]);
+      return;
+    }
+    let alive = true;
+    gitCommitDiff(repoPath, commit.hash, cur.path)
+      .then((d) => alive && setDiff(d))
+      .catch(() => alive && setDiff([]));
+    return () => {
+      alive = false;
+    };
+  }, [repoPath, commit.hash, cur?.path]);
+
   const totalAdd = changes.reduce((s, c) => s + c.add, 0);
   const totalDel = changes.reduce((s, c) => s + c.del, 0);
-  const diff = cur ? DIFFS[cur.path] || [{ t: "hunk" as const, a: `@@ ${cur.path} @@` }] : [];
+  const color = account?.color ?? "#7b72e8";
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="flex items-center gap-3.25 px-5 py-4 border-b border-border-soft bg-[#13111f]">
         <div
           className="w-9.5 h-9.5 rounded-[11px] grid place-items-center text-[#0b0a16] font-bold text-[14px] flex-none"
-          style={{ background: `linear-gradient(150deg, ${account.color}, ${account.color}bb)` }}
+          style={{ background: `linear-gradient(150deg, ${color}, ${color}bb)` }}
         >
-          {account.initials}
+          {account?.initials ?? "?"}
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-[15px] font-semibold">{commit.subject}</div>
           <div className="text-[12px] text-text-3 mt-0.75 font-mono">
-            <strong className="text-text-2 font-semibold">{account.name}</strong> &lt;{account.email}&gt; committed{" "}
-            {commit.when}
+            <strong className="text-text-2 font-semibold">{account?.name ?? commit.by}</strong>
+            {account ? ` <${account.email}>` : ""} committed {commit.when}
           </div>
         </div>
-        {commit.flag && (
-          <span className="flex-none text-[11px] text-amber bg-amber/12 border border-amber/30 px-2.25 py-0.75 rounded-full">
-            as <strong className="font-bold">{account.label}</strong>
-          </span>
-        )}
         <div className="font-mono text-[12px] text-text-2 bg-surface-2 px-2.5 py-1.25 rounded-[7px] border border-border">
-          {commit.hash}
+          {commit.hash.slice(0, 7)}
         </div>
       </div>
       <div className="flex-1 flex min-h-0">
@@ -96,7 +127,10 @@ export function CommitDetail({ commit, account }: CommitDetailProps) {
           {cur ? (
             <DiffView path={cur.path} status={cur.status} add={cur.add} del={cur.del} diff={diff} />
           ) : (
-            <div className="flex-1 grid place-items-center text-text-3">No file changes in this commit.</div>
+            <div className="flex-1 flex flex-col items-center justify-center gap-2 text-text-3 p-7.5">
+              <img src="/placeholder.svg" alt="" width={64} height={64} style={{ opacity: 0.5 }} />
+              <div className="text-[14px] font-semibold text-text-2">No file changes in this commit</div>
+            </div>
           )}
         </div>
       </div>

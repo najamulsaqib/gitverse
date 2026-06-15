@@ -10,7 +10,7 @@ function fileName(p: string) {
 
 export function ChangesPanel() {
   const repoId = useReposStore((s) => s.repoId);
-  const files = useReposStore((s) => s.filesByRepo[repoId]);
+  const files = useReposStore((s) => s.filesByRepo[repoId]) ?? [];
   const selected = useReposStore((s) => s.selFile);
   const filter = useReposStore((s) => s.filter);
   const setFilter = useReposStore((s) => s.setFilter);

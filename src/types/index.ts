@@ -38,6 +38,19 @@ export interface Repo {
   remote: string;
 }
 
+export interface ReposData {
+  repos: Repo[];
+  activeId: string | null;
+}
+
+/** Details reported by `validate_repo` for the add-repo confirmation step. */
+export interface RepoCandidate {
+  name: string;
+  path: string;
+  branch: string;
+  remote: string;
+}
+
 export interface Branch {
   name: string;
   current: boolean;

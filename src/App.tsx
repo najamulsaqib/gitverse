@@ -2,44 +2,79 @@ import { useEffect } from "react";
 import "@/App.css";
 import { AddAccountWizard } from "@/components/ProfileSetup/AddAccountWizard";
 import { EditAccountModal } from "@/components/ProfileSetup/EditAccountModal";
+import { AddRepoModal } from "@/components/RepoView/AddRepoModal";
 import { MainPanel } from "@/components/RepoView/MainPanel";
+import { NewBranchModal } from "@/components/RepoView/NewBranchModal";
+import { NoRepos } from "@/components/RepoView/NoRepos";
+import { RepoContextMenu } from "@/components/RepoView/RepoContextMenu";
+import { RepoSidebar } from "@/components/RepoView/RepoSidebar";
 import { SidePanel } from "@/components/RepoView/SidePanel";
 import { Toolbar } from "@/components/RepoView/Toolbar";
 import { AccountRail } from "@/components/Sidebar/AccountRail";
 import { SetupGate } from "@/components/SetupGate/SetupGate";
 import { Toast } from "@/components/shared/Toast";
+import { onRepoChanged } from "@/hooks/useGit";
 import { useProfilesStore } from "@/store/profiles";
+import { useReposStore } from "@/store/repos";
 import { useUiStore } from "@/store/ui";
 
 function App() {
-  const openMenu = useUiStore((s) => s.openMenu);
-  const setOpenMenu = useUiStore((s) => s.setOpenMenu);
+  const repoSidebarOpen = useUiStore((s) => s.repoSidebarOpen);
+  const closeRepoSidebar = useUiStore((s) => s.closeRepoSidebar);
   const addAccountModalOpen = useUiStore((s) => s.addAccountModalOpen);
+  const addRepoModalOpen = useUiStore((s) => s.addRepoModalOpen);
+  const editRepoId = useUiStore((s) => s.editRepoId);
   const editAccountId = useUiStore((s) => s.editAccountId);
+  const newBranch = useUiStore((s) => s.newBranch);
   const toast = useUiStore((s) => s.toast);
   const loaded = useProfilesStore((s) => s.loaded);
   const accounts = useProfilesStore((s) => s.accounts);
+  const repos = useReposStore((s) => s.repos);
 
   useEffect(() => {
     useProfilesStore.getState().loadProfiles();
+    useReposStore.getState().loadRepos();
+  }, []);
+
+  // Live sync: the backend watches the selected repo and emits "repo-changed"
+  // on any working-tree/.git change. Debounce a burst into a single refresh.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unlisten = onRepoChanged(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => useReposStore.getState().refresh(), 200);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unlisten.then((fn) => fn());
+    };
   }, []);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // Always swallow Escape so the webview's default action (exiting macOS
+      // native fullscreen) never fires. Then close the topmost overlay, if any.
+      e.preventDefault();
       const ui = useUiStore.getState();
-      if (ui.editAccountId) {
-        e.preventDefault();
+      if (ui.newBranch) {
+        ui.closeNewBranch();
+      } else if (ui.openMenu) {
+        ui.setOpenMenu(null);
+      } else if (ui.editAccountId) {
         ui.closeEditAccount();
       } else if (ui.accountMenu) {
-        e.preventDefault();
         ui.closeAccountMenu();
       } else if (ui.addAccountModalOpen) {
-        e.preventDefault();
         ui.closeAddAccount();
-      } else if (ui.openMenu) {
-        e.preventDefault();
-        ui.setOpenMenu(null);
+      } else if (ui.addRepoModalOpen) {
+        ui.closeAddRepo();
+      } else if (ui.editRepoId) {
+        ui.closeEditRepo();
+      } else if (ui.repoMenu) {
+        ui.closeRepoMenu();
+      } else if (ui.repoSidebarOpen) {
+        ui.closeRepoSidebar();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -63,21 +98,35 @@ function App() {
     >
       <div className="relative flex w-full h-full bg-bg overflow-hidden">
         <AccountRail />
-        <div className="flex-1 flex flex-col min-w-0">
-          <Toolbar />
-          <div className="flex-1 flex min-h-0">
-            <div className="w-86 flex-none min-w-0 max-w-86 min-h-0 overflow-hidden flex border-r border-border-soft">
-              <SidePanel />
-            </div>
-            <div className="flex-1 min-w-0 flex flex-col bg-bg">
-              <MainPanel />
-            </div>
-          </div>
+        <div className="flex-1 flex flex-col min-w-0 relative">
+          {repos.length === 0 ? (
+            <NoRepos />
+          ) : (
+            <>
+              <Toolbar />
+              <div className="flex-1 flex min-h-0">
+                <div className="w-86 flex-none min-w-0 max-w-86 min-h-0 overflow-hidden flex border-r border-border-soft">
+                  <SidePanel />
+                </div>
+                <div className="flex-1 min-w-0 flex flex-col bg-bg">
+                  <MainPanel />
+                </div>
+              </div>
+            </>
+          )}
+          {repoSidebarOpen && repos.length > 0 && (
+            <>
+              <div className="absolute inset-0 z-40 bg-[rgba(6,5,12,0.45)] animate-fade-in" onClick={closeRepoSidebar} />
+              <RepoSidebar />
+            </>
+          )}
         </div>
 
-        {openMenu && <div className="absolute inset-0 z-30" onClick={() => setOpenMenu(null)} />}
         {addAccountModalOpen && <AddAccountWizard />}
+        {(addRepoModalOpen || editRepoId) && <AddRepoModal />}
+        {newBranch && <NewBranchModal />}
         {editAccountId && <EditAccountModal />}
+        <RepoContextMenu />
         <Toast toast={toast} />
       </div>
     </div>

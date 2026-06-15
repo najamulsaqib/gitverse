@@ -59,5 +59,7 @@ jobs:
           releaseName: "GitVerse ${{ github.ref_name }}"
           releaseBody: "See the assets below to download and install this version."
           releaseDraft: true
-          prerelease: false
+          # Tags with a pre-release suffix (v1.2.3-beta.1, -rc.1, -alpha, ...)
+          # are marked as pre-releases; a plain vX.Y.Z tag is a stable release.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ matrix.args }}

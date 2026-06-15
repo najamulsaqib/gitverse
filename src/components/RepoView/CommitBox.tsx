@@ -10,7 +10,7 @@ export function CommitBox() {
   const identityPulse = useProfilesStore((s) => s.identityPulse);
   const repoId = useReposStore((s) => s.repoId);
   const branch = useReposStore((s) => s.branchByRepo[repoId]);
-  const files = useReposStore((s) => s.filesByRepo[repoId]);
+  const files = useReposStore((s) => s.filesByRepo[repoId]) ?? [];
   const summary = useReposStore((s) => s.summary);
   const desc = useReposStore((s) => s.desc);
   const setSummary = useReposStore((s) => s.setSummary);

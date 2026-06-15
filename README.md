@@ -49,7 +49,7 @@ no reimplementation.
 
 ```bash
 npm install
-npm run tauri dev
+npm run start
 ```
 
 ## Status
