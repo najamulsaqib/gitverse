@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   gitBranches,
+  gitCheckAccess,
   gitCheckout,
   gitCommit,
   gitFetch,
@@ -23,7 +24,7 @@ import {
 } from "@/hooks/useRepo";
 import { useProfilesStore } from "@/store/profiles";
 import { useUiStore } from "@/store/ui";
-import type { Branch, Commit, FileChange, Repo, SyncState } from "@/types";
+import type { AccessState, Branch, Commit, FileChange, Repo, SyncState } from "@/types";
 
 interface ReposState {
   repos: Repo[];
@@ -33,6 +34,7 @@ interface ReposState {
   filesByRepo: Record<string, FileChange[]>;
   historyByRepo: Record<string, Commit[]>;
   syncByRepo: Record<string, SyncState>;
+  accessByRepo: Record<string, AccessState>;
   selFile: string | null;
   selCommit: string | null;
   filter: string;
@@ -58,11 +60,18 @@ interface ReposState {
   addCoAuthor: (email: string) => void;
   removeCoAuthor: (email: string) => void;
   runSync: () => Promise<void>;
+  checkAccess: () => Promise<void>;
   commit: () => Promise<void>;
 }
 
 const toastErr = (title: string, e: unknown) =>
   useUiStore.getState().showToast({ title, sub: String(e), color: "#e8506e" });
+
+/** Does this git error look like the remote rejecting the active identity? */
+const isAccessDenied = (e: unknown) =>
+  /permission denied|access rights|authentication failed|could not read from remote|publickey|repository not found|\b403\b/i.test(
+    String(e),
+  );
 
 export const useReposStore = create<ReposState>((set, get) => ({
   repos: [],
@@ -72,6 +81,7 @@ export const useReposStore = create<ReposState>((set, get) => ({
   filesByRepo: {},
   historyByRepo: {},
   syncByRepo: {},
+  accessByRepo: {},
   selFile: null,
   selCommit: null,
   filter: "",
@@ -86,6 +96,7 @@ export const useReposStore = create<ReposState>((set, get) => ({
     if (repo) {
       watchRepo(repo.path).catch(() => { });
       await get().refresh();
+      get().checkAccess();
     }
   },
 
@@ -125,6 +136,7 @@ export const useReposStore = create<ReposState>((set, get) => ({
     setActiveRepoCmd(id).catch(() => { });
     watchRepo(repo.path).catch(() => { });
     get().refresh();
+    get().checkAccess();
 
     const { accounts, activeId } = useProfilesStore.getState();
     if (repo.owner && repo.owner !== activeId) {
@@ -281,11 +293,39 @@ export const useReposStore = create<ReposState>((set, get) => ({
         await gitFetch(repo.path);
         ui.showToast({ title: "Up to date", sub: `Fetched ${repo.name}`, color: "var(--color-teal)" });
       }
+      set((st) => ({ accessByRepo: { ...st.accessByRepo, [repoId]: "ok" } }));
     } catch (e) {
-      toastErr("Sync failed", e);
+      if (isAccessDenied(e)) {
+        set((st) => ({ accessByRepo: { ...st.accessByRepo, [repoId]: "denied" } }));
+        const { accounts, activeId } = useProfilesStore.getState();
+        const account = accounts.find((a) => a.id === activeId) ?? accounts[0];
+        ui.showToast({
+          title: "No access to remote",
+          sub: `${account?.label ?? "The active identity"} can’t reach ${repo.name}. Check this identity has access.`,
+          color: "#e8506e",
+        });
+      } else {
+        toastErr("Sync failed", e);
+      }
     } finally {
       ui.setSyncPhase("idle");
       await get().refresh();
+    }
+  },
+
+  checkAccess: async () => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    // Drop any stale verdict (e.g. the previous identity's) while we re-probe.
+    set((st) => ({ accessByRepo: { ...st.accessByRepo, [repoId]: "unknown" } }));
+    try {
+      await gitCheckAccess(repo.path);
+      set((st) => ({ accessByRepo: { ...st.accessByRepo, [repoId]: "ok" } }));
+    } catch (e) {
+      set((st) => ({
+        accessByRepo: { ...st.accessByRepo, [repoId]: isAccessDenied(e) ? "denied" : "unknown" },
+      }));
     }
   },
 

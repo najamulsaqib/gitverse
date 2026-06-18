@@ -13,7 +13,7 @@ import { Toolbar } from "@/components/RepoView/Toolbar";
 import { AccountRail } from "@/components/Sidebar/AccountRail";
 import { SetupGate } from "@/components/SetupGate/SetupGate";
 import { Toast } from "@/components/shared/Toast";
-import { onRepoChanged } from "@/hooks/useGit";
+import { onGitProgress, onRepoChanged } from "@/hooks/useGit";
 import { useProfilesStore } from "@/store/profiles";
 import { useReposStore } from "@/store/repos";
 import { useUiStore } from "@/store/ui";
@@ -27,6 +27,7 @@ function App() {
   const editAccountId = useUiStore((s) => s.editAccountId);
   const newBranch = useUiStore((s) => s.newBranch);
   const toast = useUiStore((s) => s.toast);
+  const sidePanelWidth = useUiStore((s) => s.sidePanelWidth);
   const loaded = useProfilesStore((s) => s.loaded);
   const accounts = useProfilesStore((s) => s.accounts);
   const repos = useReposStore((s) => s.repos);
@@ -46,6 +47,14 @@ function App() {
     });
     return () => {
       if (timer) clearTimeout(timer);
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  // Live git progress: the backend streams `git-progress` while a network op runs.
+  useEffect(() => {
+    const unlisten = onGitProgress((p) => useUiStore.getState().setProgress(p));
+    return () => {
       unlisten.then((fn) => fn());
     };
   }, []);
@@ -81,6 +90,25 @@ function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // Drag the divider to resize the Changes/History panel (clamped in the store).
+  const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = useUiStore.getState().sidePanelWidth;
+    const onMove = (ev: PointerEvent) =>
+      useUiStore.getState().setSidePanelWidth(startW + (ev.clientX - startX));
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+  };
+
   if (!loaded) {
     return (
       <div className="h-screen w-screen bg-[radial-gradient(1200px_700px_at_18%_-10%,#1a1636_0%,#0a0913_55%,#07060d_100%)]" />
@@ -105,8 +133,18 @@ function App() {
             <>
               <Toolbar />
               <div className="flex-1 flex min-h-0">
-                <div className="w-86 flex-none min-w-0 max-w-86 min-h-0 overflow-hidden flex border-r border-border-soft">
+                <div
+                  style={{ width: sidePanelWidth }}
+                  className="flex-none min-w-0 min-h-0 overflow-hidden flex"
+                >
                   <SidePanel />
+                </div>
+                <div
+                  onPointerDown={startResize}
+                  className="group relative w-px flex-none bg-border-soft cursor-col-resize"
+                  title="Drag to resize"
+                >
+                  <span className="absolute inset-y-0 -left-1 -right-1 transition-colors group-hover:bg-indigo/30" />
                 </div>
                 <div className="flex-1 min-w-0 flex flex-col bg-bg">
                   <MainPanel />

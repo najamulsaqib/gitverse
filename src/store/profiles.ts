@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { addProfile, getProfiles, removeProfile, setActiveProfile, updateProfile } from "@/hooks/useProfile";
+import { useReposStore } from "@/store/repos";
 import type { Account } from "@/types";
 
 interface ProfilesState {
@@ -30,6 +31,8 @@ export const useProfilesStore = create<ProfilesState>((set, get) => ({
     if (id === get().activeId) return;
     const data = await setActiveProfile(id);
     set((state) => ({ activeId: data.activeId ?? "", identityPulse: state.identityPulse + 1 }));
+    // The new identity may have different remote access — re-probe the open repo.
+    useReposStore.getState().checkAccess();
   },
 
   addAccount: async (account) => {

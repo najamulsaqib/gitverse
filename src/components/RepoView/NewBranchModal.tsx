@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { IcBranch, IcCheck, IcX } from "@/components/shared/icons";
 import { Button } from "@/components/shared/Button";
+import { Input } from "@/components/shared/Input";
 import { Modal } from "@/components/shared/Modal";
 import { gitDefaultBranch } from "@/hooks/useGit";
 import { useReposStore } from "@/store/repos";
@@ -83,13 +84,14 @@ export function NewBranchModal() {
       <div className="px-5 py-5 space-y-4">
         <div className="space-y-1.5">
           <label className="text-[12px] text-text-3 font-medium">Branch name</label>
-          <input
+          <Input
             autoFocus
+            surface="surface-2"
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && create()}
             placeholder="feature/my-branch"
-            className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2.25 text-[13px] text-text outline-none focus:border-indigo"
+            className="w-full"
           />
           {exists && <div className="text-[12px] text-red">A branch named “{trimmed}” already exists.</div>}
         </div>

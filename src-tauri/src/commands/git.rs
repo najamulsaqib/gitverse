@@ -1,13 +1,14 @@
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::models::{
-    Branch, Commit, CommitFileChange, CommitRef, DiffLine, FileChange, RepoStatus,
+    Branch, Commit, CommitFileChange, CommitRef, DiffLine, FileChange, GitProgress, RepoStatus,
 };
 
 /// Run a git subcommand in `dir`, returning trimmed stdout. Non-zero exit is an error.
@@ -456,19 +457,141 @@ pub fn git_default_branch(path: String) -> Result<String, String> {
     git(&path, &["rev-parse", "--abbrev-ref", "HEAD"])
 }
 
-#[tauri::command]
-pub fn git_fetch(path: String) -> Result<(), String> {
-    git(&path, &["fetch", "--prune"]).map(|_| ())
+/// Pull the percent + label out of a git progress line such as
+/// `Receiving objects:  67% (4/6)` → `(67, "Receiving objects")`.
+fn parse_progress(line: &str) -> Option<(u8, String)> {
+    let pct_pos = line.find('%')?;
+    let digits: String = line[..pct_pos]
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    if digits.is_empty() {
+        return None;
+    }
+    let pct = digits.parse::<u8>().ok()?.min(100);
+    let text = line.split(':').next().unwrap_or("").trim().to_string();
+    Some((pct, text))
+}
+
+/// Run a network git op with `--progress`, emitting `git-progress` events as
+/// git reports progress on stderr (`\r`-delimited lines). Returns the captured
+/// stderr on non-zero exit so callers can detect access failures.
+fn git_progress(app: &AppHandle, dir: &str, args: &[&str]) -> Result<(), String> {
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    let mut stderr = child.stderr.take().ok_or("failed to capture git output")?;
+    let mut chunk = [0u8; 4096];
+    let mut line: Vec<u8> = Vec::new();
+    let mut full: Vec<u8> = Vec::new();
+
+    loop {
+        let n = stderr.read(&mut chunk).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        for &b in &chunk[..n] {
+            if b == b'\r' || b == b'\n' {
+                if !line.is_empty() {
+                    full.extend_from_slice(&line);
+                    full.push(b'\n');
+                    let text = String::from_utf8_lossy(&line);
+                    if let Some((pct, label)) = parse_progress(&text) {
+                        let _ = app.emit("git-progress", GitProgress { pct, text: label });
+                    }
+                    line.clear();
+                }
+            } else {
+                line.push(b);
+            }
+        }
+    }
+    if !line.is_empty() {
+        full.extend_from_slice(&line);
+    }
+
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&full).trim().to_string())
+    }
+}
+
+/// Run a network op on a blocking thread so it never stalls the main command
+/// thread — otherwise the webview can't repaint the busy state or process the
+/// `git-progress` events until the whole op finishes.
+async fn git_network(app: AppHandle, args: Vec<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let (dir, rest) = refs.split_first().expect("dir + args");
+        git_progress(&app, dir, rest)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn git_push(path: String) -> Result<(), String> {
-    git(&path, &["push"]).map(|_| ())
+pub async fn git_fetch(app: AppHandle, path: String) -> Result<(), String> {
+    git_network(
+        app,
+        vec![path, "fetch".into(), "--prune".into(), "--progress".into()],
+    )
+    .await
 }
 
 #[tauri::command]
-pub fn git_pull(path: String) -> Result<(), String> {
-    git(&path, &["pull", "--ff-only"]).map(|_| ())
+pub async fn git_push(app: AppHandle, path: String) -> Result<(), String> {
+    git_network(app, vec![path, "push".into(), "--progress".into()]).await
+}
+
+#[tauri::command]
+pub async fn git_pull(app: AppHandle, path: String) -> Result<(), String> {
+    git_network(
+        app,
+        vec![path, "pull".into(), "--ff-only".into(), "--progress".into()],
+    )
+    .await
+}
+
+/// Probe whether the active identity can reach the repo's `origin` remote.
+/// Runs `ls-remote` with prompts disabled so it never hangs on a passphrase or
+/// host-verification question — a permission failure returns its stderr.
+#[tauri::command]
+pub async fn git_check_access(path: String) -> Result<(), String> {
+    // The network round-trip can take seconds; run it on a blocking thread so it
+    // never stalls the main command thread (and with it, identity switching).
+    tauri::async_runtime::spawn_blocking(move || {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&path)
+            .args(["ls-remote", "origin", "HEAD"])
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env(
+                "GIT_SSH_COMMAND",
+                "ssh -o BatchMode=yes -o ConnectTimeout=8",
+            )
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ---- live file watching ----

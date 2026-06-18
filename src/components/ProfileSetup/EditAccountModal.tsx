@@ -1,8 +1,12 @@
 import { useState } from "react";
 import { Button } from "@/components/shared/Button";
+import { Field } from "@/components/shared/Field";
 import { IconButton } from "@/components/shared/IconButton";
+import { Input } from "@/components/shared/Input";
 import { Modal } from "@/components/shared/Modal";
+import { Select } from "@/components/shared/Select";
 import { IcCheck, IcX } from "@/components/shared/icons";
+import { DEFAULT_IDENTITY_ICON, IdentityIconPicker } from "@/components/shared/identityIcons";
 import { useProfilesStore } from "@/store/profiles";
 import { useUiStore } from "@/store/ui";
 
@@ -20,20 +24,11 @@ export function EditAccountModal() {
   const [email, setEmail] = useState(account?.email ?? "");
   const [host, setHost] = useState(account?.host ?? "github.com");
   const [color, setColor] = useState(account?.color ?? COLORS[0]);
+  const [icon, setIcon] = useState(account?.icon || DEFAULT_IDENTITY_ICON);
 
   if (!account) return null;
 
   const save = async () => {
-    const initials = (
-      name
-        .trim()
-        .split(/\s+/)
-        .map((w) => w[0])
-        .join("")
-        .slice(0, 2) ||
-      label.slice(0, 2) ||
-      "NA"
-    ).toUpperCase();
     const handle = email.split("@")[0];
     try {
       await useProfilesStore.getState().updateAccount({
@@ -45,7 +40,7 @@ export function EditAccountModal() {
         handle,
         host,
         color,
-        initials,
+        icon,
       });
       closeEditAccount();
       showToast({
@@ -74,51 +69,31 @@ export function EditAccountModal() {
         <div className="pt-6.5 px-7 pb-5 flex flex-col gap-3.5">
           <h2 className="text-[19px] font-semibold tracking-[-0.01em]">Edit profile</h2>
           <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[12px] font-medium text-text-2">Display name</span>
-              <input
-                className="bg-bg border border-border rounded-lg px-2.75 py-2.25 text-[13px] outline-none transition-colors focus:border-indigo"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Sarah Chen"
-              />
-            </label>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[12px] font-medium text-text-2">Label</span>
-              <input
-                className="bg-bg border border-border rounded-lg px-2.75 py-2.25 text-[13px] outline-none transition-colors focus:border-indigo"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="Client · Orbit"
-              />
-            </label>
+            <Field label="Display name">
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Sarah Chen" />
+            </Field>
+            <Field label="Label">
+              <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Client · Orbit" />
+            </Field>
           </div>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-text-2">Commit email</span>
-            <input
-              className="bg-bg border border-border rounded-lg px-2.75 py-2.25 text-[13px] outline-none transition-colors focus:border-indigo"
+          <Field label="Commit email">
+            <Input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="sarah@orbit.dev"
               type="email"
             />
-          </label>
+          </Field>
           <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[12px] font-medium text-text-2">Host</span>
-              <select
-                className="bg-bg border border-border rounded-lg px-2.75 py-2.25 text-[13px] outline-none transition-colors focus:border-indigo"
-                value={host}
-                onChange={(e) => setHost(e.target.value)}
-              >
+            <Field label="Host">
+              <Select value={host} onChange={(e) => setHost(e.target.value)}>
                 <option>github.com</option>
                 <option>gitlab.com</option>
                 <option>bitbucket.org</option>
                 <option>custom (self-hosted)</option>
-              </select>
-            </label>
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[12px] font-medium text-text-2">Accent</span>
+              </Select>
+            </Field>
+            <Field label="Accent">
               <div className="flex items-center gap-1.75 h-9.5">
                 {COLORS.map((c) => (
                   <button
@@ -130,8 +105,11 @@ export function EditAccountModal() {
                   />
                 ))}
               </div>
-            </div>
+            </Field>
           </div>
+          <Field label="Avatar icon">
+            <IdentityIconPicker value={icon} color={color} onChange={setIcon} />
+          </Field>
         </div>
       </div>
       <div className="flex items-center justify-end gap-2.25 px-6 py-3.5 border-t border-border-soft bg-[#13111f]">

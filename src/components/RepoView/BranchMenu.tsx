@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { IcBranch, IcCheck, IcFilter, IcPlus } from "@/components/shared/icons";
+import { Input } from "@/components/shared/Input";
 import type { Branch } from "@/types";
 
 interface BranchMenuProps {
@@ -16,12 +17,13 @@ export function BranchMenu({ branches, onPick, onNewBranch }: BranchMenuProps) {
     <div className="absolute top-[calc(100%+6px)] left-2 z-40 w-82.5 bg-surface border border-border rounded-xl shadow-[0_24px_60px_-18px_rgba(0,0,0,0.7)] overflow-hidden animate-pop">
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border-soft text-text-3">
         <IcFilter s={13} />
-        <input
+        <Input
           autoFocus
+          variant="ghost"
           placeholder="Filter branches"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          className="flex-1 bg-transparent border-none outline-none text-[13px] text-text"
+          className="flex-1"
         />
       </div>
       <div className="max-h-80 overflow-auto p-1.5">

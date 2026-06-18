@@ -86,6 +86,7 @@ pub fn run() {
             commands::git::git_fetch,
             commands::git::git_push,
             commands::git::git_pull,
+            commands::git::git_check_access,
             commands::git::watch_repo,
             commands::git::unwatch_repo,
         ])

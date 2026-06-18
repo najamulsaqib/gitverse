@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { IcBranch, IcGlobe, IcRepo, IcX } from "@/components/shared/icons";
 import { Button } from "@/components/shared/Button";
 import { Modal } from "@/components/shared/Modal";
+import { Select } from "@/components/shared/Select";
 import { pickRepoFolder, validateRepo } from "@/hooks/useRepo";
 import { useProfilesStore } from "@/store/profiles";
 import { useReposStore } from "@/store/repos";
@@ -84,7 +85,6 @@ export function AddRepoModal() {
           owner,
           branch: candidate.branch,
           path: candidate.path,
-          private: true,
           remote: candidate.remote,
         };
         await addRepo(repo);
@@ -169,17 +169,15 @@ export function AddRepoModal() {
             )}
             <div className="flex items-center gap-2.5 pt-1">
               <span className="text-[13px] text-text-3 w-16 flex-none">Identity</span>
-              <select
-                value={owner}
-                onChange={(e) => setOwner(e.target.value)}
-                className="flex-1 bg-surface-2 border border-border rounded-lg px-2.5 py-2 text-[13px] text-text outline-none focus:border-indigo"
-              >
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.label} · {a.host}
-                  </option>
-                ))}
-              </select>
+              <div className="flex-1">
+                <Select value={owner} onChange={(e) => setOwner(e.target.value)}>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label} · {a.host}
+                    </option>
+                  ))}
+                </Select>
+              </div>
             </div>
           </div>
           <div className="flex justify-end gap-2 px-5 py-4 border-t border-border-soft">

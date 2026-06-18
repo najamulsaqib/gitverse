@@ -9,7 +9,7 @@ export interface Account {
   handle: string;
   email: string;
   color: string;
-  initials: string;
+  icon: string;
   host: string;
   key: string;
   fp: string;
@@ -34,7 +34,6 @@ export interface Repo {
   owner: string;
   branch: string;
   path: string;
-  private: boolean;
   remote: string;
 }
 
@@ -61,6 +60,9 @@ export interface SyncState {
   behind: number;
   lastFetch: string;
 }
+
+/** Whether the active identity can reach a repo's remote. */
+export type AccessState = "ok" | "denied" | "unknown";
 
 export type FileStatus = "M" | "A" | "D";
 
@@ -108,6 +110,12 @@ export interface Commit {
 }
 
 export type SyncPhase = "idle" | "fetching" | "pushing" | "pulling";
+
+/** Live progress for a network git op (mirrors Rust `GitProgress`). */
+export interface GitProgress {
+  pct: number;
+  text: string;
+}
 
 export interface ToastMessage {
   id: number;

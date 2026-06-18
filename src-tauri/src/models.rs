@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+/// Live progress for a network git op, emitted as `git-progress` events.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitProgress {
+    pub pct: u8,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
@@ -10,7 +18,8 @@ pub struct Profile {
     pub handle: String,
     pub email: String,
     pub color: String,
-    pub initials: String,
+    #[serde(default)]
+    pub icon: String,
     pub host: String,
     pub key: String,
     pub fp: String,
@@ -31,7 +40,6 @@ pub struct Repo {
     pub owner: String,
     pub branch: String,
     pub path: String,
-    pub private: bool,
     pub remote: String,
 }
 

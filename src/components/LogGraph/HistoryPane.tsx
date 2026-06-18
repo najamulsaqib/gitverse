@@ -1,3 +1,4 @@
+import { IdentityIcon } from "@/components/shared/identityIcons";
 import { useProfilesStore } from "@/store/profiles";
 import { useReposStore } from "@/store/repos";
 
@@ -119,11 +120,11 @@ export function HistoryPane() {
                 </span>
               </div>
               <div
-                className={`flex-none w-4.5 h-4.5 rounded-md grid place-items-center text-[#0b0a16] font-bold text-[8px] ${c.flag ? "shadow-[0_0_0_1.5px_var(--color-bg),0_0_0_3px_var(--color-amber)]" : ""
+                className={`flex-none w-4.5 h-4.5 rounded-md grid place-items-center text-[#0b0a16] ${c.flag ? "shadow-[0_0_0_1.5px_var(--color-bg),0_0_0_3px_var(--color-amber)]" : ""
                   }`}
                 style={{ background: `linear-gradient(150deg, ${a.color}, ${a.color}bb)` }}
               >
-                {a.initials}
+                <IdentityIcon icon={a.icon} s={11} />
               </div>
             </div>
           );

@@ -1,13 +1,14 @@
 import { useState } from "react";
-import { Avatar } from "@/components/shared/Avatar";
+import { IdentityBadge } from "@/components/RepoView/IdentityBadge";
 import { IcUserPlus, IcX } from "@/components/shared/icons";
+import { Input } from "@/components/shared/Input";
+import { Textarea } from "@/components/shared/Textarea";
 import { useProfilesStore } from "@/store/profiles";
 import { useReposStore } from "@/store/repos";
 
 export function CommitBox() {
   const accounts = useProfilesStore((s) => s.accounts);
   const activeId = useProfilesStore((s) => s.activeId);
-  const identityPulse = useProfilesStore((s) => s.identityPulse);
   const repoId = useReposStore((s) => s.repoId);
   const branch = useReposStore((s) => s.branchByRepo[repoId]);
   const files = useReposStore((s) => s.filesByRepo[repoId]) ?? [];
@@ -27,28 +28,17 @@ export function CommitBox() {
 
   return (
     <div className="flex-none border-t border-border-soft p-3 flex flex-col gap-2.5 bg-[#13111f]">
-      <div className="flex items-center gap-2.5">
-        <div
-          key={identityPulse}
-          className={`rounded-[9.6px] flex-none ${identityPulse > 0 ? "animate-id-pulse" : ""}`}
-          style={{ "--pulse-color": account.color } as React.CSSProperties}
-        >
-          <Avatar acc={account} size={20} />
-        </div>
-        <div className="flex-1 min-w-0 text-[12.5px] whitespace-nowrap overflow-hidden text-ellipsis">
-          <span className="text-text font-semibold">{account.name}</span>
-          <span className="text-text-3"> · {account.email}</span>
-        </div>
-      </div>
+      <IdentityBadge account={account} />
       <div className="flex flex-col gap-1.75">
-        <input
-          className="bg-surface border border-border rounded-lg px-2.75 py-2.25 text-[13px] outline-none transition-colors focus:border-indigo"
+        <Input
+          surface="surface"
           placeholder="Summary (required)"
           value={summary}
           onChange={(e) => setSummary(e.target.value)}
         />
-        <textarea
-          className="bg-surface border border-border rounded-lg px-2.75 py-2.25 text-[12.5px] outline-none transition-colors focus:border-indigo resize-none h-15.5"
+        <Textarea
+          surface="surface"
+          className="h-15.5"
           placeholder="Description"
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
@@ -71,8 +61,10 @@ export function CommitBox() {
             </button>
           </span>
         ))}
-        <input
-          className="flex-1 min-w-32 bg-transparent border-none outline-none text-[12.5px] text-text placeholder:text-text-3"
+        <Input
+          variant="ghost"
+          inputSize="sm"
+          className="flex-1 min-w-32"
           placeholder="Add co-author email"
           value={coAuthorInput}
           onChange={(e) => setCoAuthorInput(e.target.value)}

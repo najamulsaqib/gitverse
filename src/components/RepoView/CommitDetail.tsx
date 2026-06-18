@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { DiffView } from "@/components/RepoView/DiffView";
+import { IdentityIcon } from "@/components/shared/identityIcons";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { gitCommitChanges, gitCommitDiff } from "@/hooks/useGit";
 import type { Account, Commit, CommitFileChange, DiffLine } from "@/types";
@@ -90,10 +91,10 @@ export function CommitDetail({ commit, account, repoPath }: CommitDetailProps) {
     <div className="flex-1 flex flex-col min-h-0">
       <div className="flex items-center gap-3.25 px-5 py-4 border-b border-border-soft bg-[#13111f]">
         <div
-          className="w-9.5 h-9.5 rounded-[11px] grid place-items-center text-[#0b0a16] font-bold text-[14px] flex-none"
+          className="w-9.5 h-9.5 rounded-[11px] grid place-items-center text-[#0b0a16] flex-none"
           style={{ background: `linear-gradient(150deg, ${color}, ${color}bb)` }}
         >
-          {account?.initials ?? "?"}
+          <IdentityIcon icon={account?.icon} s={21} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-[15px] font-semibold">{commit.subject}</div>

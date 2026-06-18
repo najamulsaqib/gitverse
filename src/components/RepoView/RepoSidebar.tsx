@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { IcCheck, IcFilter, IcGlobe, IcLock, IcPlus, IcX } from "@/components/shared/icons";
+import { IcCheck, IcCloud, IcFilter, IcPlus, IcRepo, IcX } from "@/components/shared/icons";
+import { Input } from "@/components/shared/Input";
 import { useProfilesStore } from "@/store/profiles";
 import { useReposStore } from "@/store/repos";
 import { useUiStore } from "@/store/ui";
@@ -41,12 +42,13 @@ export function RepoSidebar() {
 
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border-soft text-text-3">
         <IcFilter s={13} />
-        <input
+        <Input
           autoFocus
+          variant="ghost"
           placeholder="Filter repositories"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          className="flex-1 bg-transparent border-none outline-none text-[13px] text-text"
+          className="flex-1"
         />
       </div>
 
@@ -65,17 +67,20 @@ export function RepoSidebar() {
             {g.items.map((r) => (
               <button
                 key={r.id}
-                className={`flex items-center gap-2.25 w-full px-2.5 py-2 rounded-lg text-[13px] text-text-2 transition-colors duration-100 hover:bg-surface-2 hover:text-text ${
-                  r.id === repoId ? "text-text bg-indigo/10" : ""
-                }`}
+                className={`flex items-center gap-2.25 w-full px-2.5 py-2 rounded-lg text-[13px] text-text-2 transition-colors duration-100 hover:bg-surface-2 hover:text-text ${r.id === repoId ? "text-text bg-indigo/10" : ""
+                  }`}
                 onClick={() => pick(r.id)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   openRepoMenu(r.id, e.clientX, e.clientY);
                 }}
               >
-                <span className="grid place-items-center flex-none" style={{ color: g.acc?.color }}>
-                  {r.private ? <IcLock s={14} /> : <IcGlobe s={14} />}
+                <span
+                  className="grid place-items-center flex-none"
+                  style={{ color: g.acc?.color }}
+                  title={r.remote ? "Tracks a remote" : "Local-only repository"}
+                >
+                  {r.remote ? <IcCloud s={14} /> : <IcRepo s={14} />}
                 </span>
                 <span className="flex-1 text-left whitespace-nowrap overflow-hidden text-ellipsis font-medium">
                   {r.name}

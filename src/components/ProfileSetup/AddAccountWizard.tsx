@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/shared/Button";
+import { Field } from "@/components/shared/Field";
 import { IconButton } from "@/components/shared/IconButton";
+import { Input } from "@/components/shared/Input";
 import { Modal } from "@/components/shared/Modal";
+import { Select } from "@/components/shared/Select";
 import {
   IcCheck,
   IcCopy,
@@ -14,6 +17,11 @@ import {
   IcTerminal,
   IcX,
 } from "@/components/shared/icons";
+import {
+  DEFAULT_IDENTITY_ICON,
+  IdentityIcon,
+  IdentityIconPicker,
+} from "@/components/shared/identityIcons";
 import { generateSshKey, listSshKeys } from "@/hooks/useProfile";
 import { useProfilesStore } from "@/store/profiles";
 import { useUiStore } from "@/store/ui";
@@ -134,6 +142,7 @@ export function AddAccountWizard({ dismissible = true }: { dismissible?: boolean
   const [email, setEmail] = useState("");
   const [host, setHost] = useState("github.com");
   const [color, setColor] = useState(COLORS[3]);
+  const [icon, setIcon] = useState(DEFAULT_IDENTITY_ICON);
   const [keygen, setKeygen] = useState<KeygenState>("idle");
   const [keyMode, setKeyMode] = useState<"generate" | "existing">("generate");
   const [sshKeyInfo, setSshKeyInfo] = useState<SshKeyInfo | null>(null);
@@ -144,16 +153,6 @@ export function AddAccountWizard({ dismissible = true }: { dismissible?: boolean
   const [urlCopied, setUrlCopied] = useState(false);
 
   const keyName = "id_ed25519_" + (label.toLowerCase().replace(/[^a-z0-9]+/g, "") || "new");
-  const initials = (
-    name
-      .trim()
-      .split(/\s+/)
-      .map((w) => w[0])
-      .join("")
-      .slice(0, 2) ||
-    label.slice(0, 2) ||
-    "NA"
-  ).toUpperCase();
 
   const runKeygen = async () => {
     setKeygen("running");
@@ -203,7 +202,7 @@ export function AddAccountWizard({ dismissible = true }: { dismissible?: boolean
       handle: email.split("@")[0],
       email,
       color,
-      initials,
+      icon,
       host,
       key: sshKeyInfo.name,
       fp: sshKeyInfo.fingerprint,
@@ -262,51 +261,31 @@ export function AddAccountWizard({ dismissible = true }: { dismissible?: boolean
               automatically — no manual edits.
             </p>
             <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1.5">
-                <span className="text-[12px] font-medium text-text-2">Display name</span>
-                <input
-                  className="bg-bg border border-border rounded-lg px-2.75 py-2.25 text-[13px] outline-none transition-colors focus:border-indigo"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Sarah Chen"
-                />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <span className="text-[12px] font-medium text-text-2">Label</span>
-                <input
-                  className="bg-bg border border-border rounded-lg px-2.75 py-2.25 text-[13px] outline-none transition-colors focus:border-indigo"
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value)}
-                  placeholder="Client · Orbit"
-                />
-              </label>
+              <Field label="Display name">
+                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Sarah Chen" />
+              </Field>
+              <Field label="Label">
+                <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Client · Orbit" />
+              </Field>
             </div>
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[12px] font-medium text-text-2">Commit email</span>
-              <input
-                className="bg-bg border border-border rounded-lg px-2.75 py-2.25 text-[13px] outline-none transition-colors focus:border-indigo"
+            <Field label="Commit email">
+              <Input
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="sarah@orbit.dev"
                 type="email"
               />
-            </label>
+            </Field>
             <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1.5">
-                <span className="text-[12px] font-medium text-text-2">Host</span>
-                <select
-                  className="bg-bg border border-border rounded-lg px-2.75 py-2.25 text-[13px] outline-none transition-colors focus:border-indigo"
-                  value={host}
-                  onChange={(e) => setHost(e.target.value)}
-                >
+              <Field label="Host">
+                <Select value={host} onChange={(e) => setHost(e.target.value)}>
                   <option>github.com</option>
                   <option>gitlab.com</option>
                   <option>bitbucket.org</option>
                   <option>custom (self-hosted)</option>
-                </select>
-              </label>
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[12px] font-medium text-text-2">Accent</span>
+                </Select>
+              </Field>
+              <Field label="Accent">
                 <div className="flex items-center gap-1.75 h-9.5">
                   {COLORS.map((c) => (
                     <button
@@ -318,8 +297,11 @@ export function AddAccountWizard({ dismissible = true }: { dismissible?: boolean
                     />
                   ))}
                 </div>
-              </div>
+              </Field>
             </div>
+            <Field label="Avatar icon">
+              <IdentityIconPicker value={icon} color={color} onChange={setIcon} />
+            </Field>
           </div>
         )}
 
@@ -566,10 +548,10 @@ export function AddAccountWizard({ dismissible = true }: { dismissible?: boolean
             {name && (
               <>
                 <span
-                  className="grid place-items-center text-[#0b0a16] font-bold rounded-lg flex-none"
-                  style={{ background: `linear-gradient(150deg, ${color}, ${color}bb)`, width: 30, height: 30, fontSize: 11 }}
+                  className="grid place-items-center text-[#0b0a16] rounded-lg flex-none"
+                  style={{ background: `linear-gradient(150deg, ${color}, ${color}bb)`, width: 30, height: 30 }}
                 >
-                  {initials}
+                  <IdentityIcon icon={icon} s={17} />
                 </span>
                 <span>
                   {name} · <span style={{ color }}>{label || "identity"}</span>

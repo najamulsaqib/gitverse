@@ -1,12 +1,17 @@
 import { create } from "zustand";
-import type { SyncPhase, ToastMessage } from "@/types";
+import type { GitProgress, SyncPhase, ToastMessage } from "@/types";
 
 export type SidebarTab = "changes" | "history";
+
+const SIDE_PANEL_MIN = 280;
+const SIDE_PANEL_MAX = 560;
 
 interface UiState {
   tab: SidebarTab;
   openMenu: string | null;
   syncPhase: SyncPhase;
+  progress: GitProgress | null;
+  sidePanelWidth: number;
   repoSidebarOpen: boolean;
   repoMenu: { id: string; x: number; y: number } | null;
   addAccountModalOpen: boolean;
@@ -19,6 +24,8 @@ interface UiState {
   setTab: (tab: SidebarTab) => void;
   setOpenMenu: (menu: string | null) => void;
   setSyncPhase: (phase: SyncPhase) => void;
+  setProgress: (progress: GitProgress | null) => void;
+  setSidePanelWidth: (px: number) => void;
   toggleRepoSidebar: () => void;
   closeRepoSidebar: () => void;
   openRepoMenu: (id: string, x: number, y: number) => void;
@@ -44,6 +51,8 @@ export const useUiStore = create<UiState>((set) => ({
   tab: "changes",
   openMenu: null,
   syncPhase: "idle",
+  progress: null,
+  sidePanelWidth: 344,
   repoSidebarOpen: false,
   repoMenu: null,
   addAccountModalOpen: false,
@@ -56,7 +65,10 @@ export const useUiStore = create<UiState>((set) => ({
 
   setTab: (tab) => set({ tab }),
   setOpenMenu: (menu) => set({ openMenu: menu }),
-  setSyncPhase: (phase) => set({ syncPhase: phase }),
+  setSyncPhase: (phase) => set(phase === "idle" ? { syncPhase: phase, progress: null } : { syncPhase: phase }),
+  setProgress: (progress) => set({ progress }),
+  setSidePanelWidth: (px) =>
+    set({ sidePanelWidth: Math.min(SIDE_PANEL_MAX, Math.max(SIDE_PANEL_MIN, px)) }),
   toggleRepoSidebar: () => set((s) => ({ repoSidebarOpen: !s.repoSidebarOpen, repoMenu: null })),
   closeRepoSidebar: () => set({ repoSidebarOpen: false, repoMenu: null }),
   openRepoMenu: (id, x, y) => set({ repoMenu: { id, x, y } }),
