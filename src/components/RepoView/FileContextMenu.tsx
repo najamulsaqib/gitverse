@@ -1,12 +1,12 @@
-import { useState } from "react";
 import { Button } from "@/components/shared/Button";
 import { ContextMenu } from "@/components/shared/ContextMenu";
 import { IconButton } from "@/components/shared/IconButton";
 import { Modal } from "@/components/shared/Modal";
-import { IcCopy, IcEditor, IcFolderOpen, IcGlobe, IcUndo, IcX } from "@/components/shared/icons";
+import { IcCopy, IcEditor, IcFolderOpen, IcUndo, IcX } from "@/components/shared/icons";
 import { fileManagerActionLabel } from "@/hooks/useSystem";
 import { useReposStore } from "@/store/repos";
 import { useUiStore } from "@/store/ui";
+import { useState } from "react";
 
 function baseName(p: string) {
   const i = p.lastIndexOf("/");
@@ -21,7 +21,6 @@ export function FileContextMenu() {
   const showToast = useUiStore((s) => s.showToast);
   const discardFile = useReposStore((s) => s.discardFile);
   const openFile = useReposStore((s) => s.openFile);
-  const openFileWith = useReposStore((s) => s.openFileWith);
   const revealFile = useReposStore((s) => s.revealFile);
   const fileAbsPath = useReposStore((s) => s.fileAbsPath);
   const [confirmPath, setConfirmPath] = useState<string | null>(null);
