@@ -12,13 +12,22 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::models::{
     Branch, Commit, CommitFileChange, CommitRef, DiffLine, FileChange, GitProgress, RepoStatus,
+    StashEntry,
 };
 
 /// Run a git subcommand in `dir`, returning trimmed stdout. Non-zero exit is an error.
+///
+/// `core.quotePath=false` forces git to emit paths as raw UTF-8 instead of
+/// double-quoting + octal-escaping any non-ASCII bytes (the default). Without it,
+/// a file with a unicode name — e.g. a macOS screenshot, whose name contains a
+/// narrow no-break space (U+202F) — comes back from `status`/`diff` as a quoted,
+/// escaped string. That string is then reused verbatim to stage/stash/diff the
+/// file and never matches it on disk, so the file can't be acted on at all.
 fn git(dir: &str, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(dir)
+        .args(["-c", "core.quotePath=false"])
         .args(args)
         .output()
         .map_err(|e| e.to_string())?;
@@ -123,7 +132,7 @@ pub async fn git_status(path: String) -> Result<RepoStatus, String> {
             let ab = s.spawn(|| git(p, &["rev-list", "--left-right", "--count", "@{u}...HEAD"]));
             let staged = s.spawn(|| numstat(p, true));
             let unstaged = s.spawn(|| numstat(p, false));
-            let porcelain = s.spawn(|| git(p, &["status", "--porcelain=v1", "-uall"]));
+            let porcelain = s.spawn(|| git(p, &["status", "--porcelain=v1", "-z", "-uall"]));
             (
                 branch.join().unwrap_or_else(|_| "detached".to_string()),
                 ab.join()
@@ -158,17 +167,21 @@ pub async fn git_status(path: String) -> Result<RepoStatus, String> {
         }
         let mut entries = Vec::new();
         let mut untracked_rels = Vec::new();
-        for line in porcelain.lines() {
-            if line.len() < 3 {
-                continue;
+        // `-z` makes each record NUL-terminated and the path fully literal (no
+        // quoting/escaping, ever — including spaces, quotes, and unicode). Record
+        // form is `XY <path>`; a rename/copy emits the original path as the *next*
+        // NUL field, which we consume so it isn't parsed as its own entry.
+        let mut fields = porcelain.split('\0');
+        while let Some(rec) = fields.next() {
+            if rec.len() < 4 {
+                continue; // trailing empty field, or too short to hold "XY <path>"
             }
-            let x = line.as_bytes()[0] as char;
-            let y = line.as_bytes()[1] as char;
-            let rest = &line[3..];
-            let rel = match rest.find(" -> ") {
-                Some(i) => rest[i + 4..].to_string(),
-                None => rest.to_string(),
-            };
+            let x = rec.as_bytes()[0] as char;
+            let y = rec.as_bytes()[1] as char;
+            let rel = rec[3..].to_string();
+            if x == 'R' || y == 'R' || x == 'C' || y == 'C' {
+                fields.next(); // discard the rename/copy source path
+            }
 
             let staged = x != ' ' && x != '?';
             let code = if staged { x } else { y };
@@ -531,6 +544,152 @@ pub fn git_commit_diff(path: String, hash: String, file: String) -> Result<Vec<D
     Ok(parse_diff(&out))
 }
 
+// ---- stash ----
+
+/// Reflog selector `stash@{N}` for the given index, the canonical way to address
+/// a stash entry in every `git stash` subcommand.
+fn stash_ref(index: u32) -> String {
+    format!("stash@{{{index}}}")
+}
+
+/// Split a stash reflog subject into (branch, message). git writes either
+/// `WIP on <branch>: <sha> <subject>` (auto) or `On <branch>: <message>`
+/// (custom `-m`). Anything unrecognised is returned whole as the message.
+fn parse_stash_subject(subject: &str) -> (String, String) {
+    let rest = subject
+        .strip_prefix("WIP on ")
+        .or_else(|| subject.strip_prefix("On "));
+    match rest.and_then(|r| r.split_once(": ")) {
+        Some((branch, message)) => (branch.to_string(), message.to_string()),
+        None => (String::new(), subject.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn git_stash_list(path: String) -> Result<Vec<StashEntry>, String> {
+    let out = git(&path, &["stash", "list", "--format=%gd%x1f%gs%x1f%cr"])?;
+    let mut entries = Vec::new();
+    for line in out.lines() {
+        let f: Vec<&str> = line.split('\u{1f}').collect();
+        if f.len() < 3 {
+            continue;
+        }
+        // %gd is e.g. "stash@{2}" — pull the integer out of the braces.
+        let index = f[0]
+            .split_once('{')
+            .and_then(|(_, r)| r.strip_suffix('}'))
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0);
+        let (branch, message) = parse_stash_subject(f[1]);
+        entries.push(StashEntry {
+            index,
+            message,
+            branch,
+            when: f[2].to_string(),
+        });
+    }
+    Ok(entries)
+}
+
+#[tauri::command]
+pub fn git_stash_save(
+    path: String,
+    message: String,
+    include_untracked: bool,
+    files: Vec<String>,
+) -> Result<(), String> {
+    let msg = message.trim().to_string();
+    let mut args: Vec<&str> = vec!["stash", "push"];
+    if include_untracked {
+        args.push("--include-untracked");
+    }
+    if !msg.is_empty() {
+        args.push("-m");
+        args.push(&msg);
+    }
+    // A non-empty pathspec limits the stash to those files; empty stashes the
+    // whole working tree.
+    if !files.is_empty() {
+        args.push("--");
+        args.extend(files.iter().map(String::as_str));
+    }
+    let out = git(&path, &args)?;
+    // `git stash push` exits 0 with this message when there's nothing to stash —
+    // surface it as an error so the UI can tell the user instead of silently no-op.
+    if out.contains("No local changes to save") {
+        return Err("No local changes to stash.".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn git_stash_apply(path: String, index: u32) -> Result<(), String> {
+    git(&path, &["stash", "apply", &stash_ref(index)]).map(|_| ())
+}
+
+#[tauri::command]
+pub fn git_stash_pop(path: String, index: u32) -> Result<(), String> {
+    git(&path, &["stash", "pop", &stash_ref(index)]).map(|_| ())
+}
+
+#[tauri::command]
+pub fn git_stash_drop(path: String, index: u32) -> Result<(), String> {
+    git(&path, &["stash", "drop", &stash_ref(index)]).map(|_| ())
+}
+
+#[tauri::command]
+pub fn git_stash_changes(path: String, index: u32) -> Result<Vec<CommitFileChange>, String> {
+    let r = stash_ref(index);
+    // `-u` so files stashed while untracked (e.g. via the "include untracked"
+    // option) are listed too, not just tracked changes.
+    let names = git(&path, &["stash", "show", "-u", "--name-status", &r])?;
+    let nums = git(&path, &["stash", "show", "-u", "--numstat", &r])?;
+
+    let mut changes = Vec::new();
+    for (ns, st) in nums.lines().zip(names.lines()) {
+        let np: Vec<&str> = ns.split('\t').collect();
+        let sp: Vec<&str> = st.split('\t').collect();
+        if np.len() < 3 || sp.len() < 2 {
+            continue;
+        }
+        changes.push(CommitFileChange {
+            path: sp.last().unwrap().to_string(),
+            status: map_status(sp[0].chars().next().unwrap_or('M')),
+            add: np[0].parse().unwrap_or(0),
+            del: np[1].parse().unwrap_or(0),
+        });
+    }
+    Ok(changes)
+}
+
+/// git's well-known empty tree object — diffing against it renders a file as
+/// all-additions, which is how an untracked file in a stash should appear.
+const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+#[tauri::command]
+pub fn git_stash_diff(path: String, index: u32, file: String) -> Result<Vec<DiffLine>, String> {
+    // `git stash show -p -- <file>` doesn't work — stash show treats the pathspec
+    // as a second revision ("Too many revisions specified"). Diff the stash commit
+    // against its base parent instead, which honours a pathspec normally.
+    let r = stash_ref(index);
+    let base = format!("{r}^1");
+    let out = git(&path, &["diff", &base, &r, "--", &file])?;
+    if !out.trim().is_empty() {
+        return Ok(parse_diff(&out));
+    }
+
+    // Empty tracked diff: the file may have been untracked when stashed, in which
+    // case it lives in the stash's third parent (`stash@{N}^3`, created by `-u`).
+    // Diff that tree against the empty tree so the new file shows as additions.
+    let untracked = format!("{r}^3");
+    if git(&path, &["rev-parse", "--verify", "--quiet", &untracked]).is_ok() {
+        let out = git(&path, &["diff", EMPTY_TREE, &untracked, "--", &file])?;
+        return Ok(parse_diff(&out));
+    }
+
+    Ok(parse_diff(&out))
+}
+
 // ---- write actions ----
 
 #[tauri::command]
@@ -608,6 +767,34 @@ pub fn git_checkout(
         vec!["checkout", branch.as_str()]
     };
     git(&path, &args).map(|_| ())
+}
+
+// ---- commit actions (from the history graph) ----
+
+/// Apply the changes introduced by `hash` as a new commit on the current branch.
+/// A conflict leaves the cherry-pick in progress and returns git's message.
+#[tauri::command]
+pub fn git_cherry_pick(path: String, hash: String) -> Result<(), String> {
+    git(&path, &["cherry-pick", &hash]).map(|_| ())
+}
+
+/// Create a new commit that undoes the changes in `hash` (non-interactive).
+/// A conflict leaves the revert in progress and returns git's message.
+#[tauri::command]
+pub fn git_revert(path: String, hash: String) -> Result<(), String> {
+    git(&path, &["revert", "--no-edit", &hash]).map(|_| ())
+}
+
+/// Move the current branch to `hash`. `mode` is `soft` (keep changes staged),
+/// `mixed` (keep changes unstaged, the default), or `hard` (discard all changes).
+#[tauri::command]
+pub fn git_reset(path: String, hash: String, mode: String) -> Result<(), String> {
+    let flag = match mode.as_str() {
+        "soft" => "--soft",
+        "hard" => "--hard",
+        _ => "--mixed",
+    };
+    git(&path, &["reset", flag, &hash]).map(|_| ())
 }
 
 /// Best-effort name of the repo's default branch: the remote's `origin/HEAD`,

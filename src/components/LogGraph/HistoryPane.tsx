@@ -130,10 +130,16 @@ export function HistoryPane() {
     );
   }
 
-  const { start, end } = range;
+  // History can shrink (undo / reset to an older commit) between a range update
+  // and this render — the range is only re-clamped in an effect that runs after
+  // paint. Clamp to the live commit count here so we never index past the end
+  // (which would read `undefined` and crash the whole view).
+  const end = Math.min(range.end, total);
+  const start = Math.min(range.start, end);
   const visible = [];
   for (let i = start; i < end; i++) {
     const c = commits[i];
+    if (!c) continue;
     visible.push(
       <CommitRow
         key={c.hash}

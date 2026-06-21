@@ -2,7 +2,7 @@ import { Button } from "@/components/shared/Button";
 import { ContextMenu } from "@/components/shared/ContextMenu";
 import { IconButton } from "@/components/shared/IconButton";
 import { Modal } from "@/components/shared/Modal";
-import { IcCopy, IcEditor, IcFolderOpen, IcUndo, IcX } from "@/components/shared/icons";
+import { IcCopy, IcEditor, IcFolderOpen, IcStash, IcUndo, IcX } from "@/components/shared/icons";
 import { fileManagerActionLabel } from "@/hooks/useSystem";
 import { useReposStore } from "@/store/repos";
 import { useUiStore } from "@/store/ui";
@@ -20,6 +20,7 @@ export function FileContextMenu() {
   const closeFileMenu = useUiStore((s) => s.closeFileMenu);
   const showToast = useUiStore((s) => s.showToast);
   const discardFile = useReposStore((s) => s.discardFile);
+  const stashFile = useReposStore((s) => s.stashFile);
   const openFile = useReposStore((s) => s.openFile);
   const revealFile = useReposStore((s) => s.revealFile);
   const fileAbsPath = useReposStore((s) => s.fileAbsPath);
@@ -50,6 +51,11 @@ export function FileContextMenu() {
           y={fileMenu.y}
           onClose={closeFileMenu}
           items={[
+            {
+              label: "Stash file",
+              icon: <IcStash s={14} />,
+              onClick: () => run(stashFile),
+            },
             {
               label: "Discard changes…",
               icon: <IcUndo s={14} />,

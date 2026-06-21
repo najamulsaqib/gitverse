@@ -119,6 +119,18 @@ pub struct Commit {
     pub flag: bool,
 }
 
+/// A single entry in the stash list (`git stash list`). `index` is the volatile
+/// `stash@{index}` position — never trusted across operations; the frontend
+/// re-lists after every action so it always reflects git's current order.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StashEntry {
+    pub index: u32,
+    pub message: String,
+    pub branch: String,
+    pub when: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Branch {

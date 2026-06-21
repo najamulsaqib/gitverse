@@ -18,6 +18,10 @@ export function NewBranchModal() {
 
   const repo = repos.find((r) => r.id === repoId);
   const current = currentBranch ?? branches.find((b) => b.current)?.name ?? "";
+  // When opened from a commit in the graph, the branch is based on that commit
+  // rather than the default/current branch.
+  const fromCommit = newBranch?.from;
+  const fromLabel = newBranch?.fromLabel ?? fromCommit;
 
   const [name, setName] = useState(newBranch?.name ?? "");
   const [defaultBranch, setDefaultBranch] = useState("");
@@ -38,7 +42,7 @@ export function NewBranchModal() {
 
   const trimmed = name.trim();
   const exists = branches.some((b) => b.name === trimmed);
-  const baseName = base === "default" ? defaultBranch || current : current;
+  const baseName = fromCommit ?? (base === "default" ? defaultBranch || current : current);
   const canCreate = !!trimmed && !exists && !!baseName && !creating;
 
   async function create() {
@@ -98,10 +102,23 @@ export function NewBranchModal() {
 
         <div className="space-y-1.5">
           <span className="text-[12px] text-text-3 font-medium">Create from</span>
-          <div className="space-y-2">
-            <Option value="default" label="Default branch" branch={defaultBranch} />
-            <Option value="current" label="Current branch" branch={current} />
-          </div>
+          {fromCommit ? (
+            <div className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg border border-indigo bg-indigo/10">
+              <span className="grid place-items-center flex-none text-text-2">
+                <IcBranch s={14} />
+              </span>
+              <span className="flex flex-col min-w-0">
+                <span className="text-[11px] text-text-3 font-medium">Commit</span>
+                <span className="text-[13px] font-semibold text-text font-mono truncate">{fromLabel}</span>
+              </span>
+              <IcCheck s={15} className="ml-auto text-indigo-light flex-none" />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Option value="default" label="Default branch" branch={defaultBranch} />
+              <Option value="current" label="Current branch" branch={current} />
+            </div>
+          )}
         </div>
       </div>
 

@@ -70,6 +70,8 @@ export interface Branch {
 export interface SyncState {
   ahead: number;
   behind: number;
+  /** Whether the branch tracks an upstream — false means nothing is pushed yet. */
+  upstream: boolean;
   lastFetch: string;
 }
 
@@ -104,6 +106,15 @@ export interface CommitFileChange {
   status: FileStatus;
   add: number;
   del: number;
+}
+
+/** A single `git stash` entry. `index` is the volatile `stash@{index}` position;
+ * the store re-lists after every action so it always matches git's order. */
+export interface StashEntry {
+  index: number;
+  message: string;
+  branch: string;
+  when: string;
 }
 
 export interface Commit {

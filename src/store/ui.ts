@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { GitProgress, SyncPhase, ToastMessage } from "@/types";
 
-export type SidebarTab = "changes" | "history";
+export type SidebarTab = "changes" | "history" | "stash";
 
 const SIDE_PANEL_MIN = 280;
 const SIDE_PANEL_MAX = 560;
@@ -19,8 +19,11 @@ interface UiState {
   addAccountModalOpen: boolean;
   addRepoModalOpen: boolean;
   cloneRepoModalOpen: boolean;
+  stashModalOpen: boolean;
   editRepoId: string | null;
-  newBranch: { name: string } | null;
+  /** `from`/`fromLabel` are set when branching off a specific commit from the
+   * graph; otherwise the modal bases the branch on the default/current branch. */
+  newBranch: { name: string; from?: string; fromLabel?: string } | null;
   toast: ToastMessage | null;
   accountMenu: { id: string; x: number; y: number } | null;
   editAccountId: string | null;
@@ -43,9 +46,11 @@ interface UiState {
   closeAddRepo: () => void;
   openCloneRepo: () => void;
   closeCloneRepo: () => void;
+  openStashModal: () => void;
+  closeStashModal: () => void;
   openEditRepo: (id: string) => void;
   closeEditRepo: () => void;
-  openNewBranch: (name: string) => void;
+  openNewBranch: (name: string, from?: string, fromLabel?: string) => void;
   closeNewBranch: () => void;
   showToast: (toast: Omit<ToastMessage, "id">) => void;
   openAccountMenu: (id: string, x: number, y: number) => void;
@@ -69,6 +74,7 @@ export const useUiStore = create<UiState>((set) => ({
   addAccountModalOpen: false,
   addRepoModalOpen: false,
   cloneRepoModalOpen: false,
+  stashModalOpen: false,
   editRepoId: null,
   newBranch: null,
   toast: null,
@@ -95,9 +101,11 @@ export const useUiStore = create<UiState>((set) => ({
   closeAddRepo: () => set({ addRepoModalOpen: false }),
   openCloneRepo: () => set({ cloneRepoModalOpen: true }),
   closeCloneRepo: () => set({ cloneRepoModalOpen: false }),
+  openStashModal: () => set({ stashModalOpen: true }),
+  closeStashModal: () => set({ stashModalOpen: false }),
   openEditRepo: (id) => set({ editRepoId: id, repoMenu: null }),
   closeEditRepo: () => set({ editRepoId: null }),
-  openNewBranch: (name) => set({ newBranch: { name }, openMenu: null }),
+  openNewBranch: (name, from, fromLabel) => set({ newBranch: { name, from, fromLabel }, openMenu: null }),
   closeNewBranch: () => set({ newBranch: null }),
 
   showToast: (toast) => {

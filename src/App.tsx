@@ -6,6 +6,7 @@ import { AddRepoModal } from "@/components/RepoView/AddRepoModal";
 import { CloneRepoModal } from "@/components/RepoView/CloneRepoModal";
 import { MainPanel } from "@/components/RepoView/MainPanel";
 import { NewBranchModal } from "@/components/RepoView/NewBranchModal";
+import { StashModal } from "@/components/RepoView/StashModal";
 import { GraphContextMenu } from "@/components/LogGraph/GraphContextMenu";
 import { NoRepos } from "@/components/RepoView/NoRepos";
 import { FileContextMenu } from "@/components/RepoView/FileContextMenu";
@@ -16,7 +17,7 @@ import { Toolbar } from "@/components/RepoView/Toolbar";
 import { AccountRail } from "@/components/Sidebar/AccountRail";
 import { SetupGate } from "@/components/SetupGate/SetupGate";
 import { Toast } from "@/components/shared/Toast";
-import { onGitProgress, onRepoChanged } from "@/hooks/useGit";
+import { onGitProgress, onMenuAction, onRepoChanged } from "@/hooks/useGit";
 import { useProfilesStore } from "@/store/profiles";
 import { useReposStore } from "@/store/repos";
 import { useUiStore } from "@/store/ui";
@@ -27,6 +28,7 @@ function App() {
   const addAccountModalOpen = useUiStore((s) => s.addAccountModalOpen);
   const addRepoModalOpen = useUiStore((s) => s.addRepoModalOpen);
   const cloneRepoModalOpen = useUiStore((s) => s.cloneRepoModalOpen);
+  const stashModalOpen = useUiStore((s) => s.stashModalOpen);
   const editRepoId = useUiStore((s) => s.editRepoId);
   const editAccountId = useUiStore((s) => s.editAccountId);
   const newBranch = useUiStore((s) => s.newBranch);
@@ -75,6 +77,46 @@ function App() {
     };
   }, []);
 
+  // Native menu actions: map each clicked item id to its store/ui action.
+  useEffect(() => {
+    const unlisten = onMenuAction((id) => {
+      const ui = useUiStore.getState();
+      const reposStore = useReposStore.getState();
+      switch (id) {
+        case "add-repo":
+          ui.openAddRepo();
+          break;
+        case "clone-repo":
+          ui.openCloneRepo();
+          break;
+        case "add-identity":
+          ui.openAddAccount();
+          break;
+        case "new-branch":
+          if (reposStore.repoId) ui.openNewBranch("");
+          break;
+        case "stage-all":
+          reposStore.toggleAll(true);
+          break;
+        case "unstage-all":
+          reposStore.toggleAll(false);
+          break;
+        case "stash-changes":
+          if (reposStore.repoId) ui.openStashModal();
+          break;
+        case "sync":
+          reposStore.runSync();
+          break;
+        case "refresh":
+          reposStore.refresh();
+          break;
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -84,6 +126,8 @@ function App() {
       const ui = useUiStore.getState();
       if (ui.newBranch) {
         ui.closeNewBranch();
+      } else if (ui.stashModalOpen) {
+        ui.closeStashModal();
       } else if (ui.graphMenu) {
         ui.closeGraphMenu();
       } else if (ui.openMenu) {
@@ -181,6 +225,7 @@ function App() {
         {addAccountModalOpen && <AddAccountWizard />}
         {(addRepoModalOpen || editRepoId) && <AddRepoModal />}
         {cloneRepoModalOpen && <CloneRepoModal />}
+        {stashModalOpen && <StashModal />}
         {newBranch && <NewBranchModal />}
         {editAccountId && <EditAccountModal />}
         <RepoContextMenu />

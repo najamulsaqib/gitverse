@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Checkbox } from "@/components/shared/Checkbox";
-import { IcCheck, IcChevron, IcFilter } from "@/components/shared/icons";
+import { IcCheck, IcChevron, IcFilter, IcStash } from "@/components/shared/icons";
 import { Input } from "@/components/shared/Input";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useClickOutside } from "@/hooks/useClickOutside";
@@ -33,6 +33,7 @@ export function ChangesPanel() {
   const toggleFile = useReposStore((s) => s.toggleFile);
   const toggleAll = useReposStore((s) => s.toggleAll);
   const openFileMenu = useUiStore((s) => s.openFileMenu);
+  const openStashModal = useUiStore((s) => s.openStashModal);
 
   const [mode, setMode] = useState<FilterMode>("all");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -86,6 +87,13 @@ export function ChangesPanel() {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
+        <button
+          className="flex-none flex items-center justify-center p-1.5 rounded-md text-text-3 transition-colors duration-100 hover:bg-surface-2 hover:text-text-2"
+          title="Stash all changes"
+          onClick={openStashModal}
+        >
+          <IcStash s={14} />
+        </button>
       </div>
       <div className="flex items-center gap-2.5 px-3.5 py-2.25 border-b border-border-soft">
         <Checkbox checked={allOn} indeterminate={stagedCount > 0 && !allOn} onChange={() => toggleAll(!allOn)} />

@@ -3,8 +3,11 @@ import {
   gitBranches,
   gitCheckAccess,
   gitCheckout,
+  gitCherryPick,
   gitCommit,
   gitDiscardFile,
+  gitReset,
+  gitRevert,
   gitFetch,
   gitFetchSilent,
   gitLog,
@@ -12,6 +15,11 @@ import {
   gitPush,
   gitStage,
   gitStageAll,
+  gitStashApply,
+  gitStashDrop,
+  gitStashList,
+  gitStashPop,
+  gitStashSave,
   gitStatus,
   gitUnstage,
   gitUnstageAll,
@@ -27,7 +35,7 @@ import {
 import { openFileInEditor, openFileWithDefault, revealFileInFileManager } from "@/hooks/useSystem";
 import { useProfilesStore } from "@/store/profiles";
 import { useUiStore } from "@/store/ui";
-import type { AccessState, Branch, Commit, FileChange, Repo, SyncState } from "@/types";
+import type { AccessState, Branch, Commit, FileChange, Repo, StashEntry, SyncState } from "@/types";
 
 interface ReposState {
   repos: Repo[];
@@ -40,8 +48,10 @@ interface ReposState {
   hasMoreByRepo: Record<string, boolean>;
   syncByRepo: Record<string, SyncState>;
   accessByRepo: Record<string, AccessState>;
+  stashesByRepo: Record<string, StashEntry[]>;
   selFile: string | null;
   selCommit: string | null;
+  selStash: number | null;
   filter: string;
   summary: string;
   desc: string;
@@ -56,8 +66,19 @@ interface ReposState {
   loadMoreHistory: () => Promise<void>;
   selectBranch: (name: string) => Promise<void>;
   createBranch: (name: string, from: string) => Promise<void>;
+  checkoutCommit: (hash: string) => Promise<void>;
+  undoCommit: (hash: string) => Promise<void>;
+  cherryPick: (hash: string) => Promise<void>;
+  revertCommit: (hash: string) => Promise<void>;
+  resetToCommit: (hash: string, mode: "soft" | "mixed" | "hard") => Promise<void>;
   selectFile: (path: string) => void;
   selectCommit: (hash: string) => void;
+  selectStash: (index: number) => void;
+  saveStash: (message: string, includeUntracked: boolean) => Promise<void>;
+  stashFile: (path: string) => Promise<void>;
+  applyStash: (index: number) => Promise<void>;
+  popStash: (index: number) => Promise<void>;
+  dropStash: (index: number) => Promise<void>;
   toggleFile: (path: string) => Promise<void>;
   toggleAll: (on: boolean) => Promise<void>;
   discardFile: (path: string) => Promise<void>;
@@ -116,8 +137,10 @@ export const useReposStore = create<ReposState>((set, get) => ({
   hasMoreByRepo: {},
   syncByRepo: {},
   accessByRepo: {},
+  stashesByRepo: {},
   selFile: null,
   selCommit: null,
+  selStash: null,
   filter: "",
   summary: "",
   desc: "",
@@ -162,7 +185,7 @@ export const useReposStore = create<ReposState>((set, get) => ({
   selectRepo: (id) => {
     const state = get();
     if (id === state.repoId) return;
-    set({ repoId: id, selFile: null, selCommit: null, filter: "", summary: "", desc: "", coAuthors: [] });
+    set({ repoId: id, selFile: null, selCommit: null, selStash: null, filter: "", summary: "", desc: "", coAuthors: [] });
     useUiStore.getState().setTab("changes");
     useUiStore.getState().setSyncPhase("idle");
 
@@ -215,10 +238,11 @@ export const useReposStore = create<ReposState>((set, get) => ({
 
         const wantHistory = cur.refs;
         const limit = historyLimitByRepo[repoId] ?? DEFAULT_HISTORY_LIMIT;
-        const [status, history, branches] = await Promise.all([
+        const [status, history, branches, stashes] = await Promise.all([
           gitStatus(repo.path),
           wantHistory ? gitLog(repo.path, limit) : Promise.resolve(null),
           wantHistory ? gitBranches(repo.path) : Promise.resolve(null),
+          gitStashList(repo.path).catch(() => [] as StashEntry[]),
         ]);
 
         const mapped = history ? mapAuthors(history) : null;
@@ -233,6 +257,12 @@ export const useReposStore = create<ReposState>((set, get) => ({
           let selCommit = state.selCommit;
           if (nextHistory.length && !nextHistory.some((c) => c.hash === selCommit)) selCommit = nextHistory[0].hash;
 
+          // Stash indexes shift after every pop/drop, so re-anchor the selection
+          // to a still-existing entry (or clear it when the stash is now empty).
+          let selStash = state.selStash;
+          if (stashes.length && !stashes.some((s) => s.index === selStash)) selStash = stashes[0].index;
+          else if (!stashes.length) selStash = null;
+
           return {
             branchByRepo: { ...state.branchByRepo, [repoId]: status.branch },
             branchesByRepo: branches ? { ...state.branchesByRepo, [repoId]: branches } : state.branchesByRepo,
@@ -245,11 +275,14 @@ export const useReposStore = create<ReposState>((set, get) => ({
               [repoId]: {
                 ahead: status.ahead,
                 behind: status.behind,
+                upstream: status.upstream,
                 lastFetch: status.upstream ? "tracking origin" : "no upstream",
               },
             },
+            stashesByRepo: { ...state.stashesByRepo, [repoId]: stashes },
             selFile,
             selCommit,
+            selStash,
           };
         });
 
@@ -333,8 +366,181 @@ export const useReposStore = create<ReposState>((set, get) => ({
     await get().refresh();
   },
 
+  // Detached-HEAD checkout of an arbitrary commit from the graph.
+  checkoutCommit: async (hash) => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    try {
+      await gitCheckout(repo.path, hash, false);
+      useUiStore.getState().showToast({
+        title: `Checked out ${hash.slice(0, 7)}`,
+        sub: `${repo.name} · detached HEAD`,
+        color: "var(--color-teal)",
+      });
+    } catch (e) {
+      toastErr("Checkout failed", e);
+      return;
+    }
+    await get().refresh();
+  },
+
+  // Undo the most recent (unpushed) commit: soft-reset to its parent so the
+  // commit's changes return to the staging area, ready to amend and re-commit.
+  undoCommit: async (hash) => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    try {
+      await gitReset(repo.path, `${hash}^`, "soft");
+    } catch (e) {
+      toastErr("Undo failed", e);
+      return;
+    }
+    useUiStore.getState().showToast({
+      title: "Commit undone",
+      sub: `Changes kept staged · ${repo.name}`,
+      color: "var(--color-teal)",
+    });
+    await get().refresh();
+  },
+
+  cherryPick: async (hash) => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    try {
+      await gitCherryPick(repo.path, hash);
+    } catch (e) {
+      toastErr("Cherry-pick failed", e);
+      return;
+    }
+    useUiStore.getState().showToast({
+      title: `Cherry-picked ${hash.slice(0, 7)}`,
+      sub: repo.name,
+      color: "var(--color-teal)",
+    });
+    await get().refresh();
+  },
+
+  revertCommit: async (hash) => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    try {
+      await gitRevert(repo.path, hash);
+    } catch (e) {
+      toastErr("Revert failed", e);
+      return;
+    }
+    useUiStore.getState().showToast({
+      title: `Reverted ${hash.slice(0, 7)}`,
+      sub: repo.name,
+      color: "var(--color-teal)",
+    });
+    await get().refresh();
+  },
+
+  resetToCommit: async (hash, mode) => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    try {
+      await gitReset(repo.path, hash, mode);
+    } catch (e) {
+      toastErr("Reset failed", e);
+      return;
+    }
+    useUiStore.getState().showToast({
+      title: `Reset to ${hash.slice(0, 7)}`,
+      sub: `${mode} · ${repo.name}`,
+      color: mode === "hard" ? "#e8506e" : "var(--color-teal)",
+    });
+    await get().refresh();
+  },
+
   selectFile: (path) => set({ selFile: path }),
   selectCommit: (hash) => set({ selCommit: hash }),
+  selectStash: (index) => set({ selStash: index }),
+
+  saveStash: async (message, includeUntracked) => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    try {
+      await gitStashSave(repo.path, message, includeUntracked);
+    } catch (e) {
+      toastErr("Stash failed", e);
+      return;
+    }
+    useUiStore.getState().showToast({
+      title: "Changes stashed",
+      sub: message.trim() ? `“${message.trim()}” · ${repo.name}` : repo.name,
+      color: "var(--color-teal)",
+    });
+    // Stashing clears the working tree — surface the new entry on the Stash tab.
+    useUiStore.getState().setTab("stash");
+    await get().refresh();
+  },
+
+  // Stash a single file via pathspec, naming the stash after it so it's easy to
+  // find in the list. Untracked files are included so a brand-new file stashes too.
+  stashFile: async (path) => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    try {
+      await gitStashSave(repo.path, path, true, [path]);
+    } catch (e) {
+      toastErr("Stash failed", e);
+      return;
+    }
+    useUiStore.getState().showToast({ title: "File stashed", sub: `${path} · ${repo.name}`, color: "var(--color-teal)" });
+    await get().refresh();
+  },
+
+  applyStash: async (index) => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    try {
+      await gitStashApply(repo.path, index);
+    } catch (e) {
+      toastErr("Apply failed", e);
+      return;
+    }
+    useUiStore.getState().showToast({ title: "Stash applied", sub: repo.name, color: "var(--color-teal)" });
+    await get().refresh();
+  },
+
+  popStash: async (index) => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    try {
+      await gitStashPop(repo.path, index);
+    } catch (e) {
+      toastErr("Pop failed", e);
+      return;
+    }
+    useUiStore.getState().showToast({ title: "Stash popped", sub: repo.name, color: "var(--color-teal)" });
+    await get().refresh();
+  },
+
+  dropStash: async (index) => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    try {
+      await gitStashDrop(repo.path, index);
+    } catch (e) {
+      toastErr("Drop failed", e);
+      return;
+    }
+    useUiStore.getState().showToast({ title: "Stash discarded", sub: repo.name });
+    await get().refresh();
+  },
+
   setFilter: (filter) => set({ filter }),
   setSummary: (summary) => set({ summary }),
   setDesc: (desc) => set({ desc }),
@@ -423,7 +629,7 @@ export const useReposStore = create<ReposState>((set, get) => ({
     const { repoId, repos, syncByRepo } = get();
     const repo = repos.find((r) => r.id === repoId);
     if (!repo) return;
-    const s = syncByRepo[repoId] ?? { ahead: 0, behind: 0, lastFetch: "" };
+    const s = syncByRepo[repoId] ?? { ahead: 0, behind: 0, upstream: false, lastFetch: "" };
 
     try {
       if (s.ahead > 0) {
