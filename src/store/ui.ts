@@ -14,8 +14,11 @@ interface UiState {
   sidePanelWidth: number;
   repoSidebarOpen: boolean;
   repoMenu: { id: string; x: number; y: number } | null;
+  graphMenu: { hash: string; x: number; y: number } | null;
+  fileMenu: { path: string; x: number; y: number } | null;
   addAccountModalOpen: boolean;
   addRepoModalOpen: boolean;
+  cloneRepoModalOpen: boolean;
   editRepoId: string | null;
   newBranch: { name: string } | null;
   toast: ToastMessage | null;
@@ -30,10 +33,16 @@ interface UiState {
   closeRepoSidebar: () => void;
   openRepoMenu: (id: string, x: number, y: number) => void;
   closeRepoMenu: () => void;
+  openGraphMenu: (hash: string, x: number, y: number) => void;
+  closeGraphMenu: () => void;
+  openFileMenu: (path: string, x: number, y: number) => void;
+  closeFileMenu: () => void;
   openAddAccount: () => void;
   closeAddAccount: () => void;
   openAddRepo: () => void;
   closeAddRepo: () => void;
+  openCloneRepo: () => void;
+  closeCloneRepo: () => void;
   openEditRepo: (id: string) => void;
   closeEditRepo: () => void;
   openNewBranch: (name: string) => void;
@@ -55,8 +64,11 @@ export const useUiStore = create<UiState>((set) => ({
   sidePanelWidth: 344,
   repoSidebarOpen: false,
   repoMenu: null,
+  graphMenu: null,
+  fileMenu: null,
   addAccountModalOpen: false,
   addRepoModalOpen: false,
+  cloneRepoModalOpen: false,
   editRepoId: null,
   newBranch: null,
   toast: null,
@@ -73,10 +85,16 @@ export const useUiStore = create<UiState>((set) => ({
   closeRepoSidebar: () => set({ repoSidebarOpen: false, repoMenu: null }),
   openRepoMenu: (id, x, y) => set({ repoMenu: { id, x, y } }),
   closeRepoMenu: () => set({ repoMenu: null }),
+  openGraphMenu: (hash, x, y) => set({ graphMenu: { hash, x, y } }),
+  closeGraphMenu: () => set({ graphMenu: null }),
+  openFileMenu: (path, x, y) => set({ fileMenu: { path, x, y } }),
+  closeFileMenu: () => set({ fileMenu: null }),
   openAddAccount: () => set({ addAccountModalOpen: true }),
   closeAddAccount: () => set({ addAccountModalOpen: false }),
   openAddRepo: () => set({ addRepoModalOpen: true }),
   closeAddRepo: () => set({ addRepoModalOpen: false }),
+  openCloneRepo: () => set({ cloneRepoModalOpen: true }),
+  closeCloneRepo: () => set({ cloneRepoModalOpen: false }),
   openEditRepo: (id) => set({ editRepoId: id, repoMenu: null }),
   closeEditRepo: () => set({ editRepoId: null }),
   openNewBranch: (name) => set({ newBranch: { name }, openMenu: null }),

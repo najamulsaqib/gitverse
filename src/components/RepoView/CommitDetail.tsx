@@ -17,11 +17,20 @@ function CommitFileRow({ f, selected, onSelect }: CommitFileRowProps) {
   const base = i >= 0 ? f.path.slice(i + 1) : f.path;
   return (
     <div
-      className={`flex items-center gap-2.25 px-2.25 py-1.75 rounded-[7px] cursor-pointer border-l-2 transition-colors duration-100 hover:bg-surface-2 ${selected ? "bg-indigo/13 border-indigo" : "border-transparent"
+      className={`relative flex items-center gap-2.25 px-2.25 py-1.75 rounded-[7px] cursor-pointer transition-all duration-150 ${selected ? "bg-indigo/13" : "hover:bg-surface-2"
         }`}
       onClick={onSelect}
       title={f.path}
     >
+      {selected && (
+        <span
+          className="absolute left-0 inset-y-0 w-0.75 rounded-l-[7px]"
+          style={{
+            background: "#7b72e8",
+            boxShadow: "0 0 12px 1.5px #7b72e8",
+          }}
+        />
+      )}
       <StatusBadge status={f.status} />
       <span
         className={`flex-1 min-w-0 text-[12.5px] whitespace-nowrap overflow-hidden text-ellipsis [direction:rtl] text-left ${selected ? "text-text" : "text-text-2"
@@ -40,7 +49,7 @@ function CommitFileRow({ f, selected, onSelect }: CommitFileRowProps) {
 
 interface CommitDetailProps {
   commit: Commit;
-  account: Account;
+  account?: Account;
   repoPath: string;
 }
 

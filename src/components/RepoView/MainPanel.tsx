@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CommitDetail } from "@/components/RepoView/CommitDetail";
 import { DiffView } from "@/components/RepoView/DiffView";
+import { RepoEmptyState } from "@/components/RepoView/RepoEmptyState";
 import { gitDiff } from "@/hooks/useGit";
 import { useProfilesStore } from "@/store/profiles";
 import { useReposStore } from "@/store/repos";
@@ -39,24 +40,18 @@ export function MainPanel() {
 
   if (tab === "history") {
     const c = history.find((x) => x.hash === selectedCommit) ?? history[0];
-    if (!c)
+    if (!c) {
       return (
-        <div className="flex-1 flex flex-col items-center justify-center gap-2 text-text-3 p-7.5">
-          <img src="/placeholder.svg" alt="" width={64} height={64} style={{ opacity: 0.5 }} />
-          <div className="text-[14px] font-semibold text-text-2">No commits yet</div>
-        </div>
+        <RepoEmptyState title="No commits yet" subtitle="This repository has no commit history." repoPath={repo.path} />
       );
-    const a = accounts.find((x) => x.id === c.by) ?? accounts[0];
+    }
+    const a = accounts.find((x) => x.id === c.by);
     return <CommitDetail key={c.hash} commit={c} account={a} repoPath={repo.path} />;
   }
 
   if (!f) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-2 text-text-3 p-7.5">
-        <img src="/placeholder.svg" alt="" width={64} height={64} style={{ opacity: 0.5 }} />
-        <div className="text-[14px] font-semibold text-text-2">No local changes</div>
-        <div className="text-[12px]">Working tree clean.</div>
-      </div>
+      <RepoEmptyState title="No local changes" subtitle="Working tree clean." repoPath={repo.path} />
     );
   }
 

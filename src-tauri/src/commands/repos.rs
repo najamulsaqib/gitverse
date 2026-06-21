@@ -1,8 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::commands::profiles::read_profiles;
 use crate::commands::ssh::home_dir;
-use crate::models::{Repo, RepoCandidate, ReposData};
+use crate::models::{Repo, RepoCandidate, RepoOwnerView, ReposData};
 
 fn repos_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = home_dir(app)?.join(".gitverse");
@@ -91,9 +92,102 @@ pub fn validate_repo(path: String) -> Result<RepoCandidate, String> {
     })
 }
 
+/// True for SSH-style git remotes: `ssh://git@host/…` or the scp-like
+/// `git@host:owner/repo.git`. HTTPS and other schemes are intentionally excluded.
+fn is_ssh_url(url: &str) -> bool {
+    url.starts_with("ssh://") || (url.contains('@') && url.contains(':') && !url.contains("://"))
+}
+
+/// Derive the folder name git would create for a remote URL: the last path
+/// segment with any trailing `.git` stripped.
+fn repo_name_from_url(url: &str) -> String {
+    let last = url
+        .trim_end_matches('/')
+        .rsplit(|c| c == '/' || c == ':')
+        .next()
+        .unwrap_or("repo");
+    last.strip_suffix(".git").unwrap_or(last).to_string()
+}
+
+/// Clone a remote repository over SSH into `dest_dir`, then validate the result
+/// for the confirmation step. HTTPS URLs are rejected on purpose — GitVerse
+/// authenticates with per-identity SSH keys (`~/.ssh/config` Host blocks), so
+/// only `git@host:owner/repo.git` / `ssh://…` remotes work.
+#[tauri::command]
+pub fn clone_repo(url: String, dest_dir: String) -> Result<RepoCandidate, String> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Err("Enter a repository URL.".to_string());
+    }
+    if url.starts_with("http://") || url.starts_with("https://") {
+        return Err(
+            "HTTPS URLs aren't supported — use the SSH URL (git@host:owner/repo.git). \
+             GitVerse authenticates with your per-identity SSH key."
+                .to_string(),
+        );
+    }
+    if !is_ssh_url(url) {
+        return Err(
+            "That doesn't look like an SSH Git URL. Expected git@host:owner/repo.git.".to_string(),
+        );
+    }
+
+    let parent = canonical(&dest_dir)?;
+    if !Path::new(&parent).is_dir() {
+        return Err("Please choose a folder to clone into.".to_string());
+    }
+
+    let name = repo_name_from_url(url);
+    let target = Path::new(&parent).join(&name);
+    if target.exists() {
+        return Err(format!("A folder named \"{name}\" already exists here."));
+    }
+
+    let output = Command::new("git")
+        .arg("clone")
+        .arg(url)
+        .arg(&target)
+        .output()
+        .map_err(|e| format!("Failed to run git: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git clone failed:\n{}", stderr.trim()));
+    }
+
+    validate_repo(target.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 pub fn get_repos(app: tauri::AppHandle) -> Result<ReposData, String> {
     read_repos(&app)
+}
+
+/// Resolve a repo together with its owning profile into a ready-to-render view
+/// model, so the frontend doesn't join repos to profiles by id itself. Falls
+/// back to the first profile (matching the old UI default), and returns `None`
+/// when no repo has that id.
+#[tauri::command]
+pub fn repo_view(app: tauri::AppHandle, id: String) -> Result<Option<RepoOwnerView>, String> {
+    let repos = read_repos(&app)?;
+    let Some(repo) = repos.repos.iter().find(|r| r.id == id) else {
+        return Ok(None);
+    };
+
+    let profiles = read_profiles(&app)?;
+    let owner = profiles
+        .profiles
+        .iter()
+        .find(|p| p.id == repo.owner)
+        .or_else(|| profiles.profiles.first());
+
+    Ok(Some(RepoOwnerView {
+        id: repo.id.clone(),
+        name: repo.name.clone(),
+        remote: !repo.remote.is_empty(),
+        owner_color: owner.map(|o| o.color.clone()).unwrap_or_default(),
+        owner_label: owner.map(|o| o.label.clone()).unwrap_or_default(),
+    }))
 }
 
 /// Persist a repo to the pinned list, rejecting duplicates by canonical path.

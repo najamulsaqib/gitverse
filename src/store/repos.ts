@@ -4,7 +4,9 @@ import {
   gitCheckAccess,
   gitCheckout,
   gitCommit,
+  gitDiscardFile,
   gitFetch,
+  gitFetchSilent,
   gitLog,
   gitPull,
   gitPush,
@@ -22,6 +24,7 @@ import {
   setActiveRepo as setActiveRepoCmd,
   updateRepo as updateRepoCmd,
 } from "@/hooks/useRepo";
+import { openFileInEditor, openFileWithDefault, revealFileInFileManager } from "@/hooks/useSystem";
 import { useProfilesStore } from "@/store/profiles";
 import { useUiStore } from "@/store/ui";
 import type { AccessState, Branch, Commit, FileChange, Repo, SyncState } from "@/types";
@@ -33,6 +36,8 @@ interface ReposState {
   branchesByRepo: Record<string, Branch[]>;
   filesByRepo: Record<string, FileChange[]>;
   historyByRepo: Record<string, Commit[]>;
+  historyLimitByRepo: Record<string, number>;
+  hasMoreByRepo: Record<string, boolean>;
   syncByRepo: Record<string, SyncState>;
   accessByRepo: Record<string, AccessState>;
   selFile: string | null;
@@ -47,22 +52,49 @@ interface ReposState {
   updateRepo: (repo: Repo) => Promise<void>;
   removeRepo: (id: string) => Promise<void>;
   selectRepo: (id: string) => void;
-  refresh: () => Promise<void>;
+  refresh: (scope?: { worktree: boolean; refs: boolean }) => Promise<void>;
+  loadMoreHistory: () => Promise<void>;
   selectBranch: (name: string) => Promise<void>;
   createBranch: (name: string, from: string) => Promise<void>;
   selectFile: (path: string) => void;
   selectCommit: (hash: string) => void;
   toggleFile: (path: string) => Promise<void>;
   toggleAll: (on: boolean) => Promise<void>;
+  discardFile: (path: string) => Promise<void>;
+  openFile: (path: string) => Promise<void>;
+  openFileWith: (path: string) => Promise<void>;
+  revealFile: (path: string) => Promise<void>;
+  /** Absolute path of a repo-relative file, for copy/clipboard actions. */
+  fileAbsPath: (path: string) => string;
   setFilter: (filter: string) => void;
   setSummary: (summary: string) => void;
   setDesc: (desc: string) => void;
   addCoAuthor: (email: string) => void;
   removeCoAuthor: (email: string) => void;
   runSync: () => Promise<void>;
+  autoFetch: () => Promise<void>;
   checkAccess: () => Promise<void>;
   commit: () => Promise<void>;
 }
+
+/** Guards against overlapping background fetches on a slow network. */
+let autoFetching = false;
+
+/** Serializes refreshes: at most one runs at a time, and any requests that
+ * arrive mid-flight collapse into one trailing run with the widest scope. A full
+ * refresh is just the widest scope ({ worktree, refs } both true). */
+let refreshing = false;
+let refreshQueued: { worktree: boolean; refs: boolean } | null = null;
+
+/** Commits loaded per repo on first view, and how many more each scroll adds. */
+const DEFAULT_HISTORY_LIMIT = 150;
+const HISTORY_PAGE = 150;
+
+/** Map raw commit author emails onto configured identity ids where they match. */
+const mapAuthors = (history: Commit[]) => {
+  const accounts = useProfilesStore.getState().accounts;
+  return history.map((c) => ({ ...c, by: accounts.find((a) => a.email === c.by)?.id ?? c.by }));
+};
 
 const toastErr = (title: string, e: unknown) =>
   useUiStore.getState().showToast({ title, sub: String(e), color: "#e8506e" });
@@ -80,6 +112,8 @@ export const useReposStore = create<ReposState>((set, get) => ({
   branchesByRepo: {},
   filesByRepo: {},
   historyByRepo: {},
+  historyLimitByRepo: {},
+  hasMoreByRepo: {},
   syncByRepo: {},
   accessByRepo: {},
   selFile: null,
@@ -97,6 +131,7 @@ export const useReposStore = create<ReposState>((set, get) => ({
       watchRepo(repo.path).catch(() => { });
       await get().refresh();
       get().checkAccess();
+      get().autoFetch();
     }
   },
 
@@ -137,6 +172,7 @@ export const useReposStore = create<ReposState>((set, get) => ({
     watchRepo(repo.path).catch(() => { });
     get().refresh();
     get().checkAccess();
+    get().autoFetch();
 
     const { accounts, activeId } = useProfilesStore.getState();
     if (repo.owner && repo.owner !== activeId) {
@@ -151,45 +187,102 @@ export const useReposStore = create<ReposState>((set, get) => ({
     }
   },
 
-  refresh: async () => {
-    const { repoId, repos } = get();
+  // `scope` (from the file watcher) narrows the work: a plain working-tree edit
+  // only needs `git status`, while ref changes (commit/checkout/branch/fetch)
+  // also need the expensive `git log` + `git branch`. A full refresh (no scope —
+  // manual triggers, repo switch, post-commit) runs everything. `git status` is
+  // cheap and always runs since it also drives the branch name and ahead/behind.
+  refresh: async (scope) => {
+    // Coalesce: if a refresh is already running, fold this request's scope into
+    // the queued one and let the in-flight loop pick it up — never run two at once.
+    // (An awaited refresh that gets queued resolves before its run completes, but
+    // every caller only fires it as the last step of an action, so that's fine.)
+    const req = scope ?? { worktree: true, refs: true };
+    if (refreshing) {
+      refreshQueued = refreshQueued
+        ? { worktree: refreshQueued.worktree || req.worktree, refs: refreshQueued.refs || req.refs }
+        : req;
+      return;
+    }
+
+    refreshing = true;
+    try {
+      let cur: { worktree: boolean; refs: boolean } | null = req;
+      while (cur) {
+        const { repoId, repos, historyLimitByRepo } = get();
+        const repo = repos.find((r) => r.id === repoId);
+        if (!repo) break;
+
+        const wantHistory = cur.refs;
+        const limit = historyLimitByRepo[repoId] ?? DEFAULT_HISTORY_LIMIT;
+        const [status, history, branches] = await Promise.all([
+          gitStatus(repo.path),
+          wantHistory ? gitLog(repo.path, limit) : Promise.resolve(null),
+          wantHistory ? gitBranches(repo.path) : Promise.resolve(null),
+        ]);
+
+        const mapped = history ? mapAuthors(history) : null;
+
+        set((state) => {
+          let selFile = state.selFile;
+          if (status.files.length && !status.files.some((f) => f.path === selFile)) selFile = status.files[0].path;
+          else if (!status.files.length) selFile = null;
+
+          // When history was skipped, keep the existing list and selection.
+          const nextHistory = mapped ?? state.historyByRepo[repoId] ?? [];
+          let selCommit = state.selCommit;
+          if (nextHistory.length && !nextHistory.some((c) => c.hash === selCommit)) selCommit = nextHistory[0].hash;
+
+          return {
+            branchByRepo: { ...state.branchByRepo, [repoId]: status.branch },
+            branchesByRepo: branches ? { ...state.branchesByRepo, [repoId]: branches } : state.branchesByRepo,
+            filesByRepo: { ...state.filesByRepo, [repoId]: status.files },
+            historyByRepo: mapped ? { ...state.historyByRepo, [repoId]: mapped } : state.historyByRepo,
+            hasMoreByRepo:
+              history ? { ...state.hasMoreByRepo, [repoId]: history.length >= limit } : state.hasMoreByRepo,
+            syncByRepo: {
+              ...state.syncByRepo,
+              [repoId]: {
+                ahead: status.ahead,
+                behind: status.behind,
+                lastFetch: status.upstream ? "tracking origin" : "no upstream",
+              },
+            },
+            selFile,
+            selCommit,
+          };
+        });
+
+        // Drain any request that arrived while we were awaiting git above.
+        cur = refreshQueued;
+        refreshQueued = null;
+      }
+    } finally {
+      refreshing = false;
+    }
+  },
+
+  // Grow this repo's loaded history by one page (driven by scrolling to the
+  // bottom). Re-querying the log is fast; the per-row layout and virtualised
+  // list keep rendering cheap regardless of how much is loaded.
+  loadMoreHistory: async () => {
+    const { repoId, repos, historyLimitByRepo, hasMoreByRepo } = get();
+    if (hasMoreByRepo[repoId] === false) return;
     const repo = repos.find((r) => r.id === repoId);
     if (!repo) return;
 
-    const [status, history, branches] = await Promise.all([
-      gitStatus(repo.path),
-      gitLog(repo.path, 100),
-      gitBranches(repo.path),
-    ]);
-
-    const accounts = useProfilesStore.getState().accounts;
-    const mapped = history.map((c) => ({ ...c, by: accounts.find((a) => a.email === c.by)?.id ?? c.by }));
-
-    set((state) => {
-      let selFile = state.selFile;
-      if (status.files.length && !status.files.some((f) => f.path === selFile)) selFile = status.files[0].path;
-      else if (!status.files.length) selFile = null;
-
-      let selCommit = state.selCommit;
-      if (mapped.length && !mapped.some((c) => c.hash === selCommit)) selCommit = mapped[0].hash;
-
-      return {
-        branchByRepo: { ...state.branchByRepo, [repoId]: status.branch },
-        branchesByRepo: { ...state.branchesByRepo, [repoId]: branches },
-        filesByRepo: { ...state.filesByRepo, [repoId]: status.files },
-        historyByRepo: { ...state.historyByRepo, [repoId]: mapped },
-        syncByRepo: {
-          ...state.syncByRepo,
-          [repoId]: {
-            ahead: status.ahead,
-            behind: status.behind,
-            lastFetch: status.upstream ? "tracking origin" : "no upstream",
-          },
-        },
-        selFile,
-        selCommit,
-      };
-    });
+    const limit = (historyLimitByRepo[repoId] ?? DEFAULT_HISTORY_LIMIT) + HISTORY_PAGE;
+    let history;
+    try {
+      history = await gitLog(repo.path, limit);
+    } catch {
+      return;
+    }
+    set((state) => ({
+      historyLimitByRepo: { ...state.historyLimitByRepo, [repoId]: limit },
+      hasMoreByRepo: { ...state.hasMoreByRepo, [repoId]: history.length >= limit },
+      historyByRepo: { ...state.historyByRepo, [repoId]: mapAuthors(history) },
+    }));
   },
 
   selectBranch: async (name) => {
@@ -197,11 +290,15 @@ export const useReposStore = create<ReposState>((set, get) => ({
     const repo = repos.find((r) => r.id === repoId);
     if (!repo || name === branchByRepo[repoId]) return;
 
-    const exists = (branchesByRepo[repoId] || []).some((b) => b.name === name);
+    // A remote-only branch (e.g. "origin/feature") is checked out by its bare
+    // name so git DWIM creates a local branch tracking it.
+    const picked = (branchesByRepo[repoId] || []).find((b) => b.name === name);
+    const target = picked?.remote ? name.replace(/^[^/]+\//, "") : name;
+    if (target === branchByRepo[repoId]) return;
     try {
-      await gitCheckout(repo.path, name, !exists);
+      await gitCheckout(repo.path, target, false);
       useUiStore.getState().showToast({
-        title: exists ? `Checked out ${name}` : `Created ${name}`,
+        title: `Checked out ${target}`,
         sub: repo.name,
         color: "var(--color-teal)",
       });
@@ -271,6 +368,55 @@ export const useReposStore = create<ReposState>((set, get) => ({
     await get().refresh();
   },
 
+  discardFile: async (path) => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    try {
+      await gitDiscardFile(repo.path, path);
+    } catch (e) {
+      toastErr("Failed to discard changes", e);
+    }
+    await get().refresh();
+  },
+
+  openFile: async (path) => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    try {
+      await openFileInEditor(repo.path, path);
+    } catch (e) {
+      toastErr("Couldn't open file in editor", e);
+    }
+  },
+
+  openFileWith: async (path) => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    try {
+      await openFileWithDefault(repo.path, path);
+    } catch (e) {
+      toastErr("Couldn't open file", e);
+    }
+  },
+
+  revealFile: async (path) => {
+    try {
+      await revealFileInFileManager(get().fileAbsPath(path));
+    } catch (e) {
+      toastErr("Couldn't reveal file", e);
+    }
+  },
+
+  fileAbsPath: (path) => {
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return path;
+    return `${repo.path.replace(/\/$/, "")}/${path}`;
+  },
+
   runSync: async () => {
     const ui = useUiStore.getState();
     if (ui.syncPhase !== "idle") return;
@@ -310,6 +456,28 @@ export const useReposStore = create<ReposState>((set, get) => ({
     } finally {
       ui.setSyncPhase("idle");
       await get().refresh();
+    }
+  },
+
+  // Silent periodic fetch (like VS Code / GitHub Desktop): refreshes remote refs
+  // so a teammate's push surfaces as "Pull origin / N behind" and newly pushed
+  // branches appear in the menu — without progress UI, toasts, or auth prompts.
+  autoFetch: async () => {
+    if (autoFetching) return;
+    const ui = useUiStore.getState();
+    if (ui.syncPhase !== "idle") return; // don't step on a manual push/pull/fetch
+    const { repoId, repos } = get();
+    const repo = repos.find((r) => r.id === repoId);
+    if (!repo) return;
+    autoFetching = true;
+    try {
+      await gitFetchSilent(repo.path);
+      set((st) => ({ accessByRepo: { ...st.accessByRepo, [repoId]: "ok" } }));
+      await get().refresh();
+    } catch {
+      // Offline or no access — stay quiet; checkAccess owns the access verdict.
+    } finally {
+      autoFetching = false;
     }
   },
 

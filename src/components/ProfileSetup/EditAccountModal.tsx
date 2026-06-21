@@ -10,7 +10,7 @@ import { DEFAULT_IDENTITY_ICON, IdentityIconPicker } from "@/components/shared/i
 import { useProfilesStore } from "@/store/profiles";
 import { useUiStore } from "@/store/ui";
 
-const COLORS = ["#7b72e8", "#1dccb2", "#e0a94e", "#e8506e", "#9b88ff", "#46b0e6"];
+const COLORS = ["#7b72e8", "#1dccb2", "#e8a04e", "#e85b8a", "#5b9ef0", "#c678e8", "#8fd14f", "#4fd1d1"];
 
 export function EditAccountModal() {
   const editAccountId = useUiStore((s) => s.editAccountId);
@@ -58,7 +58,7 @@ export function EditAccountModal() {
   };
 
   return (
-    <Modal onClose={closeEditAccount} className="w-120 max-w-[calc(100%-40px)]">
+    <Modal onClose={closeEditAccount} className="w-140 max-w-[calc(100%-40px)]">
       <div className="relative">
         <IconButton
           className="absolute top-3.5 right-3.5 w-7.5 h-7.5 rounded-lg z-2 text-text-3 hover:bg-surface-2 hover:text-text"

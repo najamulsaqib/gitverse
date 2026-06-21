@@ -14,7 +14,7 @@ fn profiles_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("profiles.json"))
 }
 
-fn read_profiles(app: &tauri::AppHandle) -> Result<ProfilesData, String> {
+pub(crate) fn read_profiles(app: &tauri::AppHandle) -> Result<ProfilesData, String> {
     let path = profiles_path(app)?;
 
     if !path.exists() {

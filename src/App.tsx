@@ -3,9 +3,12 @@ import "@/App.css";
 import { AddAccountWizard } from "@/components/ProfileSetup/AddAccountWizard";
 import { EditAccountModal } from "@/components/ProfileSetup/EditAccountModal";
 import { AddRepoModal } from "@/components/RepoView/AddRepoModal";
+import { CloneRepoModal } from "@/components/RepoView/CloneRepoModal";
 import { MainPanel } from "@/components/RepoView/MainPanel";
 import { NewBranchModal } from "@/components/RepoView/NewBranchModal";
+import { GraphContextMenu } from "@/components/LogGraph/GraphContextMenu";
 import { NoRepos } from "@/components/RepoView/NoRepos";
+import { FileContextMenu } from "@/components/RepoView/FileContextMenu";
 import { RepoContextMenu } from "@/components/RepoView/RepoContextMenu";
 import { RepoSidebar } from "@/components/RepoView/RepoSidebar";
 import { SidePanel } from "@/components/RepoView/SidePanel";
@@ -23,6 +26,7 @@ function App() {
   const closeRepoSidebar = useUiStore((s) => s.closeRepoSidebar);
   const addAccountModalOpen = useUiStore((s) => s.addAccountModalOpen);
   const addRepoModalOpen = useUiStore((s) => s.addRepoModalOpen);
+  const cloneRepoModalOpen = useUiStore((s) => s.cloneRepoModalOpen);
   const editRepoId = useUiStore((s) => s.editRepoId);
   const editAccountId = useUiStore((s) => s.editAccountId);
   const newBranch = useUiStore((s) => s.newBranch);
@@ -37,17 +41,29 @@ function App() {
     useReposStore.getState().loadRepos();
   }, []);
 
-  // Live sync: the backend watches the selected repo and emits "repo-changed"
-  // on any working-tree/.git change. Debounce a burst into a single refresh.
+  // Live sync: the backend already debounces + classifies filesystem events and
+  // emits a typed "repo-changed", so we refresh immediately (leading-edge, feels
+  // instant). The store serializes overlapping refreshes and merges their scopes,
+  // so a quick worktree-then-refs sequence still refreshes both without a stampede.
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const unlisten = onRepoChanged(() => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => useReposStore.getState().refresh(), 200);
+    const unlisten = onRepoChanged((change) => {
+      useReposStore.getState().refresh(change);
     });
     return () => {
-      if (timer) clearTimeout(timer);
       unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  // Auto-fetch: silently refresh remote refs every few minutes and whenever the
+  // window regains focus, so a teammate's push surfaces as a "Pull origin" count
+  // and new remote branches appear without a manual fetch.
+  useEffect(() => {
+    const tick = () => useReposStore.getState().autoFetch();
+    const id = setInterval(tick, 180_000);
+    window.addEventListener("focus", tick);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", tick);
     };
   }, []);
 
@@ -68,6 +84,8 @@ function App() {
       const ui = useUiStore.getState();
       if (ui.newBranch) {
         ui.closeNewBranch();
+      } else if (ui.graphMenu) {
+        ui.closeGraphMenu();
       } else if (ui.openMenu) {
         ui.setOpenMenu(null);
       } else if (ui.editAccountId) {
@@ -162,9 +180,12 @@ function App() {
 
         {addAccountModalOpen && <AddAccountWizard />}
         {(addRepoModalOpen || editRepoId) && <AddRepoModal />}
+        {cloneRepoModalOpen && <CloneRepoModal />}
         {newBranch && <NewBranchModal />}
         {editAccountId && <EditAccountModal />}
         <RepoContextMenu />
+        <GraphContextMenu />
+        <FileContextMenu />
         <Toast toast={toast} />
       </div>
     </div>

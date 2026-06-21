@@ -4,8 +4,11 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 
+use std::time::Duration;
+
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use tauri::{AppHandle, Emitter, State};
+use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, FileIdMap};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::models::{
     Branch, Commit, CommitFileChange, CommitRef, DiffLine, FileChange, GitProgress, RepoStatus,
@@ -72,71 +75,147 @@ fn count_lines(dir: &str, rel: &str) -> u32 {
         .unwrap_or(0)
 }
 
-#[tauri::command]
-pub fn git_status(path: String) -> Result<RepoStatus, String> {
-    let branch = match git(&path, &["rev-parse", "--abbrev-ref", "HEAD"]) {
-        Ok(b) if b != "HEAD" => b,
-        _ => "detached".to_string(),
-    };
-
-    let (ahead, behind, upstream) = match git(
-        &path,
-        &["rev-list", "--left-right", "--count", "@{u}...HEAD"],
-    ) {
-        Ok(s) => {
-            let mut it = s.split_whitespace();
-            let behind = it.next().and_then(|x| x.parse().ok()).unwrap_or(0);
-            let ahead = it.next().and_then(|x| x.parse().ok()).unwrap_or(0);
-            (ahead, behind, true)
-        }
-        Err(_) => (0, 0, false),
-    };
-
-    let staged_stats = numstat(&path, true);
-    let unstaged_stats = numstat(&path, false);
-
-    let porcelain = git(&path, &["status", "--porcelain=v1", "-uall"])?;
-    let mut files = Vec::new();
-    for line in porcelain.lines() {
-        if line.len() < 3 {
-            continue;
-        }
-        let x = line.as_bytes()[0] as char;
-        let y = line.as_bytes()[1] as char;
-        let rest = &line[3..];
-        let rel = match rest.find(" -> ") {
-            Some(i) => rest[i + 4..].to_string(),
-            None => rest.to_string(),
-        };
-
-        let staged = x != ' ' && x != '?';
-        let code = if staged { x } else { y };
-        let untracked = x == '?' || y == '?';
-
-        let (add, del) = if untracked {
-            (count_lines(&path, &rel), 0)
-        } else {
-            let s = staged_stats.get(&rel).copied().unwrap_or((0, 0));
-            let u = unstaged_stats.get(&rel).copied().unwrap_or((0, 0));
-            (s.0 + u.0, s.1 + u.1)
-        };
-
-        files.push(FileChange {
-            path: rel,
-            status: map_status(code),
-            staged,
-            add,
-            del,
-        });
+/// Line-count many (untracked) files in parallel. These are one disk read each,
+/// so on a repo with lots of untracked files counting them serially dominates
+/// `git_status`. Fan out across a bounded pool keyed by available cores.
+fn count_lines_many(dir: &str, rels: &[String]) -> HashMap<String, u32> {
+    if rels.is_empty() {
+        return HashMap::new();
     }
-
-    Ok(RepoStatus {
-        branch,
-        ahead,
-        behind,
-        upstream,
-        files,
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(1, 8)
+        .min(rels.len());
+    let chunk = rels.len().div_ceil(workers);
+    std::thread::scope(|s| {
+        let handles: Vec<_> = rels
+            .chunks(chunk)
+            .map(|c| {
+                s.spawn(move || {
+                    c.iter()
+                        .map(|r| (r.clone(), count_lines(dir, r)))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap_or_default())
+            .collect()
     })
+}
+
+#[tauri::command]
+pub async fn git_status(path: String) -> Result<RepoStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = path.as_str();
+
+        // These five queries are independent and each spawns a git process that walks
+        // the working tree, so running them serially made wall time the *sum* of all
+        // five — the main cost on a large/dirty repo. Run them concurrently instead;
+        // wall time is now the slowest single call.
+        let (branch, ab, staged_stats, unstaged_stats, porcelain) = std::thread::scope(|s| {
+            let branch = s.spawn(|| match git(p, &["rev-parse", "--abbrev-ref", "HEAD"]) {
+                Ok(b) if b != "HEAD" => b,
+                _ => "detached".to_string(),
+            });
+            let ab = s.spawn(|| git(p, &["rev-list", "--left-right", "--count", "@{u}...HEAD"]));
+            let staged = s.spawn(|| numstat(p, true));
+            let unstaged = s.spawn(|| numstat(p, false));
+            let porcelain = s.spawn(|| git(p, &["status", "--porcelain=v1", "-uall"]));
+            (
+                branch.join().unwrap_or_else(|_| "detached".to_string()),
+                ab.join()
+                    .unwrap_or_else(|_| Err("rev-list thread panicked".into())),
+                staged.join().unwrap_or_default(),
+                unstaged.join().unwrap_or_default(),
+                porcelain
+                    .join()
+                    .unwrap_or_else(|_| Err("status thread panicked".into())),
+            )
+        });
+
+        let (ahead, behind, upstream) = match ab {
+            Ok(s) => {
+                let mut it = s.split_whitespace();
+                let behind = it.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+                let ahead = it.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+                (ahead, behind, true)
+            }
+            Err(_) => (0, 0, false),
+        };
+
+        let porcelain = porcelain?;
+
+        // First pass: parse entries, deferring untracked line-counts so they can be
+        // computed in one parallel batch rather than one blocking disk read per file.
+        struct Entry {
+            rel: String,
+            code: char,
+            staged: bool,
+            untracked: bool,
+        }
+        let mut entries = Vec::new();
+        let mut untracked_rels = Vec::new();
+        for line in porcelain.lines() {
+            if line.len() < 3 {
+                continue;
+            }
+            let x = line.as_bytes()[0] as char;
+            let y = line.as_bytes()[1] as char;
+            let rest = &line[3..];
+            let rel = match rest.find(" -> ") {
+                Some(i) => rest[i + 4..].to_string(),
+                None => rest.to_string(),
+            };
+
+            let staged = x != ' ' && x != '?';
+            let code = if staged { x } else { y };
+            let untracked = x == '?' || y == '?';
+            if untracked {
+                untracked_rels.push(rel.clone());
+            }
+            entries.push(Entry {
+                rel,
+                code,
+                staged,
+                untracked,
+            });
+        }
+
+        let counts = count_lines_many(p, &untracked_rels);
+
+        let files = entries
+            .into_iter()
+            .map(|e| {
+                let (add, del) = if e.untracked {
+                    (counts.get(&e.rel).copied().unwrap_or(0), 0)
+                } else {
+                    let s = staged_stats.get(&e.rel).copied().unwrap_or((0, 0));
+                    let u = unstaged_stats.get(&e.rel).copied().unwrap_or((0, 0));
+                    (s.0 + u.0, s.1 + u.1)
+                };
+                FileChange {
+                    path: e.rel,
+                    status: map_status(e.code),
+                    staged: e.staged,
+                    add,
+                    del,
+                }
+            })
+            .collect();
+
+        Ok(RepoStatus {
+            branch,
+            ahead,
+            behind,
+            upstream,
+            files,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn parse_refs(decorate: &str) -> Vec<CommitRef> {
@@ -164,6 +243,17 @@ fn parse_refs(decorate: &str) -> Vec<CommitRef> {
             });
         }
     }
+    // Collapse a remote-tracking ref (e.g. `origin/main`) when a local branch of
+    // the same basename rides the same commit — show the single branch, not both.
+    let locals: std::collections::HashSet<String> = refs
+        .iter()
+        .filter(|r| !r.name.contains('/'))
+        .map(|r| r.name.clone())
+        .collect();
+    refs.retain(|r| match r.name.rsplit_once('/') {
+        Some((_, base)) => !locals.contains(base),
+        None => true,
+    });
     refs
 }
 
@@ -211,61 +301,103 @@ fn assign_lanes(commits: &mut [Commit]) {
 }
 
 #[tauri::command]
-pub fn git_log(path: String, limit: u32) -> Result<Vec<Commit>, String> {
-    let fmt = "%H%x1f%P%x1f%ae%x1f%ar%x1f%D%x1f%s%x1e";
-    let out = git(
-        &path,
-        &[
-            "log",
-            &format!("--max-count={limit}"),
-            &format!("--pretty=format:{fmt}"),
-        ],
-    )?;
+pub async fn git_log(path: String, limit: u32) -> Result<Vec<Commit>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let fmt = "%H%x1f%P%x1f%ae%x1f%ar%x1f%D%x1f%s%x1e";
+        let out = git(
+            &path,
+            &[
+                "log",
+                // Topological order guarantees a commit is listed before its
+                // parents, which the graph layout relies on to assign lanes.
+                "--topo-order",
+                &format!("--max-count={limit}"),
+                &format!("--pretty=format:{fmt}"),
+            ],
+        )?;
 
-    let mut commits = Vec::new();
-    for rec in out.split('\u{1e}') {
-        let rec = rec.trim_matches(|c| c == '\n' || c == '\r');
-        if rec.is_empty() {
-            continue;
+        let mut commits = Vec::new();
+        for rec in out.split('\u{1e}') {
+            let rec = rec.trim_matches(|c| c == '\n' || c == '\r');
+            if rec.is_empty() {
+                continue;
+            }
+            let f: Vec<&str> = rec.split('\u{1f}').collect();
+            if f.len() < 6 {
+                continue;
+            }
+            commits.push(Commit {
+                hash: f[0].to_string(),
+                parents: f[1].split_whitespace().map(String::from).collect(),
+                by: f[2].to_string(),
+                when: f[3].to_string(),
+                refs: parse_refs(f[4]),
+                subject: f[5].to_string(),
+                add: 0,
+                del: 0,
+                files: 0,
+                lane: 0,
+                flag: false,
+            });
         }
-        let f: Vec<&str> = rec.split('\u{1f}').collect();
-        if f.len() < 6 {
-            continue;
-        }
-        commits.push(Commit {
-            hash: f[0].to_string(),
-            parents: f[1].split_whitespace().map(String::from).collect(),
-            by: f[2].to_string(),
-            when: f[3].to_string(),
-            refs: parse_refs(f[4]),
-            subject: f[5].to_string(),
-            add: 0,
-            del: 0,
-            files: 0,
-            lane: 0,
-            flag: false,
-        });
-    }
 
-    assign_lanes(&mut commits);
-    Ok(commits)
+        assign_lanes(&mut commits);
+        Ok(commits)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn git_branches(path: String) -> Result<Vec<Branch>, String> {
-    let out = git(&path, &["branch", "--format=%(HEAD)%00%(refname:short)"])?;
-    let mut branches = Vec::new();
-    for line in out.lines() {
-        let (head, name) = line.split_once('\u{0}').unwrap_or(("", line));
-        if name.is_empty() {
-            continue;
+pub async fn git_branches(path: String) -> Result<Vec<Branch>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = git(
+            &path,
+            &[
+                "branch",
+                "-a",
+                "--format=%(HEAD)%00%(refname)%00%(refname:short)",
+            ],
+        )?;
+
+        let mut locals = std::collections::HashSet::new();
+        let mut branches = Vec::new();
+        let mut remotes: Vec<String> = Vec::new();
+        for line in out.lines() {
+            let f: Vec<&str> = line.splitn(3, '\u{0}').collect();
+            if f.len() < 3 || f[2].is_empty() {
+                continue;
+            }
+            let (head, full, short) = (f[0], f[1], f[2]);
+            if full.starts_with("refs/heads/") {
+                locals.insert(short.to_string());
+                branches.push(Branch {
+                    name: short.to_string(),
+                    current: head.trim() == "*",
+                    remote: false,
+                });
+            } else if full.starts_with("refs/remotes/") && !full.ends_with("/HEAD") {
+                // e.g. "origin/feature" — defer until locals are known so we can
+                // hide remotes that already have a local counterpart.
+                remotes.push(short.to_string());
+            }
         }
-        branches.push(Branch {
-            name: name.to_string(),
-            current: head.trim() == "*",
-        });
-    }
-    Ok(branches)
+        // Surface only remote branches with no local checkout yet (newly pushed by
+        // teammates), so they're discoverable in the menu without duplicating ours.
+        for r in remotes {
+            let bare = r.split_once('/').map(|(_, b)| b).unwrap_or(&r);
+            if !locals.contains(bare) {
+                branches.push(Branch {
+                    name: r,
+                    current: false,
+                    remote: true,
+                });
+            }
+        }
+        Ok(branches)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 fn parse_diff(out: &str) -> Vec<DiffLine> {
@@ -336,8 +468,32 @@ pub fn git_diff(path: String, file: String, staged: bool) -> Result<Vec<DiffLine
 
 #[tauri::command]
 pub fn git_commit_changes(path: String, hash: String) -> Result<Vec<CommitFileChange>, String> {
-    let names = git(&path, &["show", "--name-status", "--format=", &hash])?;
-    let nums = git(&path, &["show", "--numstat", "--format=", &hash])?;
+    // `-m --first-parent` makes merge commits report their diff against the
+    // first parent. Without it git defaults to a combined (`--cc`) diff, which
+    // for a clean merge lists nothing in --name-status (while --numstat still
+    // emits rows) — the two outputs then misalign and no changes show.
+    let names = git(
+        &path,
+        &[
+            "show",
+            "-m",
+            "--first-parent",
+            "--name-status",
+            "--format=",
+            &hash,
+        ],
+    )?;
+    let nums = git(
+        &path,
+        &[
+            "show",
+            "-m",
+            "--first-parent",
+            "--numstat",
+            "--format=",
+            &hash,
+        ],
+    )?;
 
     let mut changes = Vec::new();
     for (ns, st) in nums.lines().zip(names.lines()) {
@@ -358,7 +514,20 @@ pub fn git_commit_changes(path: String, hash: String) -> Result<Vec<CommitFileCh
 
 #[tauri::command]
 pub fn git_commit_diff(path: String, hash: String, file: String) -> Result<Vec<DiffLine>, String> {
-    let out = git(&path, &["show", "--format=", &hash, "--", &file])?;
+    // See git_commit_changes: `-m --first-parent` so merge commits diff against
+    // their first parent instead of an empty combined diff.
+    let out = git(
+        &path,
+        &[
+            "show",
+            "-m",
+            "--first-parent",
+            "--format=",
+            &hash,
+            "--",
+            &file,
+        ],
+    )?;
     Ok(parse_diff(&out))
 }
 
@@ -372,6 +541,22 @@ pub fn git_stage(path: String, file: String) -> Result<(), String> {
 #[tauri::command]
 pub fn git_unstage(path: String, file: String) -> Result<(), String> {
     git(&path, &["restore", "--staged", "--", &file]).map(|_| ())
+}
+
+/// Discard all uncommitted changes to a single file, reverting it to HEAD.
+/// Handles every state: unstages first, then restores tracked files from HEAD
+/// (covering modified/deleted/staged), or removes the file if it's untracked
+/// or a brand-new add. This permanently drops the file's working changes.
+#[tauri::command]
+pub fn git_discard_file(path: String, file: String) -> Result<(), String> {
+    // Unstage anything first so the "tracked?" check reflects HEAD, not the index.
+    let _ = git(&path, &["reset", "-q", "HEAD", "--", &file]);
+
+    if git(&path, &["ls-files", "--error-unmatch", "--", &file]).is_ok() {
+        git(&path, &["checkout", "HEAD", "--", &file]).map(|_| ())
+    } else {
+        git(&path, &["clean", "-fd", "--", &file]).map(|_| ())
+    }
 }
 
 #[tauri::command]
@@ -564,6 +749,36 @@ pub async fn git_pull(app: AppHandle, path: String) -> Result<(), String> {
     .await
 }
 
+/// Background fetch used by the periodic auto-fetch: updates remote-tracking
+/// refs and prunes deleted ones so the UI can surface "behind" counts and newly
+/// pushed remote branches. Runs on a blocking thread with prompts disabled so it
+/// never hangs on a passphrase or host-verification question — failures (e.g. no
+/// access, offline) are returned for the caller to swallow silently.
+#[tauri::command]
+pub async fn git_fetch_silent(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&path)
+            .args(["fetch", "--prune"])
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env(
+                "GIT_SSH_COMMAND",
+                "ssh -o BatchMode=yes -o ConnectTimeout=8",
+            )
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Probe whether the active identity can reach the repo's `origin` remote.
 /// Runs `ls-remote` with prompts disabled so it never hangs on a passphrase or
 /// host-verification question — a permission failure returns its stderr.
@@ -596,27 +811,122 @@ pub async fn git_check_access(path: String) -> Result<(), String> {
 
 // ---- live file watching ----
 
-/// Holds the active watcher (one repo at a time — the selected repo).
+/// Holds the active watcher (one repo at a time — the selected repo). The
+/// debouncer coalesces filesystem-event storms (gc, fetch, a build writing into
+/// the tree) into one batched callback before anything crosses the IPC boundary,
+/// so load on the frontend stays flat regardless of event volume.
 #[derive(Default)]
-pub struct WatchState(pub Mutex<Option<RecommendedWatcher>>);
+pub struct WatchState(pub Mutex<Option<Debouncer<RecommendedWatcher, FileIdMap>>>);
 
-/// Watch a repo's working tree + `.git` and emit `repo-changed` on any change.
+/// What kind of change a path represents, which decides how the frontend
+/// refreshes. Working-tree edits only need `git status`; ref changes additionally
+/// need the (expensive) `git log` + `git branch`. Noise is dropped entirely.
+enum PathKind {
+    /// Transient `.git` churn that must never trigger a refresh — most importantly
+    /// `.git/index`, which `git status` itself rewrites (stat-cache refresh).
+    /// Without this, every refresh's `git status` would re-fire the watcher in an
+    /// endless loop. Also `*.lock`, `objects/**` (gc/fetch), `logs/**` (reflog).
+    Noise,
+    /// `.git` metadata that moves refs: `HEAD` (checkout), `refs/**` and
+    /// `packed-refs` (commit/branch), `FETCH_HEAD`/`ORIG_HEAD` (fetch/merge).
+    GitMeta,
+    /// A working-tree file edit.
+    Worktree,
+}
+
+fn classify(p: &Path) -> PathKind {
+    let mut in_git = false;
+    let mut tail: Vec<&std::ffi::OsStr> = Vec::new();
+    for comp in p.components() {
+        let c = comp.as_os_str();
+        if in_git {
+            tail.push(c);
+        } else if c == ".git" {
+            in_git = true;
+        }
+    }
+    if !in_git {
+        return PathKind::Worktree;
+    }
+    if p.extension().map(|e| e == "lock").unwrap_or(false) {
+        return PathKind::Noise; // *.lock (index.lock, ref locks, …)
+    }
+    match tail.first().and_then(|s| s.to_str()) {
+        Some("index" | "objects" | "logs") => PathKind::Noise,
+        _ => PathKind::GitMeta,
+    }
+}
+
+/// Typed payload telling the frontend *what* changed, so a plain file save only
+/// re-runs `git status` instead of also re-querying the log and branch list.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RepoChange {
+    worktree: bool,
+    refs: bool,
+}
+
+/// Watch a repo's working tree + `.git` and emit a typed `repo-changed` event on
+/// any meaningful change. Events are debounced and classified server-side.
 /// Replaces any previously active watcher.
 #[tauri::command]
-pub fn watch_repo(app: AppHandle, state: State<WatchState>, path: String) -> Result<(), String> {
+pub async fn watch_repo(app: AppHandle, path: String) -> Result<(), String> {
+    // Building the watcher scans the working tree (notify's recursive watch plus
+    // the debouncer's file-id cache seeding) — seconds on a large repo. Do it on
+    // a blocking thread so switching repos never freezes the UI; the watcher just
+    // comes online a moment after the switch instead of blocking it.
     let handle = app.clone();
-    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        if res.is_ok() {
-            let _ = handle.emit("repo-changed", ());
-        }
-    })
-    .map_err(|e| e.to_string())?;
+    let debouncer = tauri::async_runtime::spawn_blocking(
+        move || -> Result<Debouncer<RecommendedWatcher, FileIdMap>, String> {
+            // 120ms: long enough to fully coalesce an event storm (gc, checkout, a
+            // build writing files all fire within a few ms and keep resetting the
+            // timer), short enough that a single save feels instant. The frontend
+            // doesn't debounce on top of this — the store coalesces refreshes itself.
+            let mut debouncer = new_debouncer(
+                Duration::from_millis(120),
+                None,
+                move |res: DebounceEventResult| {
+                    let Ok(events) = res else { return };
+                    let mut change = RepoChange {
+                        worktree: false,
+                        refs: false,
+                    };
+                    for ev in &events {
+                        for p in &ev.paths {
+                            match classify(p) {
+                                PathKind::Noise => {}
+                                PathKind::GitMeta => change.refs = true,
+                                PathKind::Worktree => change.worktree = true,
+                            }
+                        }
+                    }
+                    // Drop batches that were entirely noise (e.g. our index rewrite).
+                    if change.worktree || change.refs {
+                        let _ = handle.emit("repo-changed", change);
+                    }
+                },
+            )
+            .map_err(|e| e.to_string())?;
 
-    watcher
-        .watch(Path::new(&path), RecursiveMode::Recursive)
-        .map_err(|e| e.to_string())?;
+            debouncer
+                .watcher()
+                .watch(Path::new(&path), RecursiveMode::Recursive)
+                .map_err(|e| e.to_string())?;
+            // The cache tracks file ids so renames are reported correctly across the
+            // debounce window; it must be seeded with the same root we watch.
+            debouncer
+                .cache()
+                .add_root(Path::new(&path), RecursiveMode::Recursive);
+            Ok(debouncer)
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())??;
 
-    *state.0.lock().map_err(|e| e.to_string())? = Some(watcher);
+    *app.state::<WatchState>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())? = Some(debouncer);
     Ok(())
 }
 

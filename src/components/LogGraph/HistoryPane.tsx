@@ -1,135 +1,166 @@
-import { IdentityIcon } from "@/components/shared/identityIcons";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { CommitRow } from "@/components/LogGraph/CommitRow";
+import { GraphCanvas } from "@/components/LogGraph/GraphCanvas";
+import { buildGraph, ROW_H } from "@/components/LogGraph/graph";
 import { useProfilesStore } from "@/store/profiles";
 import { useReposStore } from "@/store/repos";
+import { useUiStore } from "@/store/ui";
 
-const LANE_COLORS = ["#7b72e8", "#1dccb2", "#e0a94e", "#c4c0ff"];
+const EMPTY: never[] = [];
+/** Rows rendered above/below the viewport. */
+const BUFFER = 24;
+/** Re-mount rows only when the viewport nears the buffer edge. */
+const BUFFER_MARGIN = 8;
 
-const ROW = 42;
-const LANE = 16;
-const PAD = 16;
-const R = 4.5;
+interface Range {
+  start: number;
+  end: number;
+}
+
+function visibleRange(scrollTop: number, viewH: number, total: number): Range {
+  const visStart = Math.floor(scrollTop / ROW_H);
+  const visEnd = Math.ceil((scrollTop + viewH) / ROW_H);
+  return {
+    start: Math.max(0, visStart - BUFFER),
+    end: Math.min(total, visEnd + BUFFER),
+  };
+}
+
+/** Expand the rendered window only when scrolling close to its edge. */
+function nextRange(scrollTop: number, viewH: number, total: number, prev: Range): Range | null {
+  const visStart = Math.floor(scrollTop / ROW_H);
+  const visEnd = Math.ceil((scrollTop + viewH) / ROW_H);
+  if (visStart >= prev.start + BUFFER_MARGIN && visEnd <= prev.end - BUFFER_MARGIN) return null;
+  return visibleRange(scrollTop, viewH, total);
+}
 
 export function HistoryPane() {
   const accounts = useProfilesStore((s) => s.accounts);
   const repoId = useReposStore((s) => s.repoId);
-  const commits = useReposStore((s) => s.historyByRepo[repoId]) ?? [];
+  const commits = useReposStore((s) => s.historyByRepo[repoId]) ?? EMPTY;
   const selected = useReposStore((s) => s.selCommit);
-  const onSelect = useReposStore((s) => s.selectCommit);
 
-  const laneColor = (l: number) => LANE_COLORS[l % LANE_COLORS.length];
-  const maxLane = commits.reduce((m, c) => Math.max(m, c.lane || 0), 0);
-  const graphW = PAD + maxLane * LANE + PAD;
-  const nodeX = (l: number) => PAD + (l || 0) * LANE;
-  const nodeY = (i: number) => i * ROW + ROW / 2;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const loading = useRef(false);
+  const rangeRef = useRef<Range>({ start: 0, end: 0 });
+  const [range, setRange] = useState<Range>({ start: 0, end: 0 });
 
-  const idx: Record<string, { row: number; lane: number }> = {};
-  commits.forEach((c, i) => {
-    idx[c.hash] = { row: i, lane: c.lane || 0 };
-  });
+  const layout = useMemo(() => buildGraph(commits), [commits]);
+  const total = commits.length;
+  const hasMore = useReposStore((s) => s.hasMoreByRepo[repoId] ?? false);
 
-  const edges: { d: string; color: string }[] = [];
-  commits.forEach((c, i) => {
-    (c.parents || []).forEach((p) => {
-      const par = idx[p];
-      if (!par) return;
-      const x1 = nodeX(c.lane || 0);
-      const y1 = nodeY(i);
-      const x2 = nodeX(par.lane);
-      const y2 = nodeY(par.row);
-      const color = laneColor(Math.max(c.lane || 0, par.lane));
-      let d: string;
-      if (x1 === x2) d = `M${x1} ${y1} L${x2} ${y2}`;
-      else {
-        const my = y1 + ROW * 0.62;
-        d = `M${x1} ${y1} C ${x1} ${my}, ${x2} ${y2 - ROW * 0.62}, ${x2} ${y2}`;
+  const accountById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts]);
+  const hashes = useMemo(() => commits.map((c) => c.hash), [commits]);
+
+  const applyRange = useCallback((next: Range) => {
+    const prev = rangeRef.current;
+    if (next.start === prev.start && next.end === prev.end) return;
+    rangeRef.current = next;
+    setRange(next);
+  }, []);
+
+  // Track viewport height and seed the first visible window.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => {
+      const next = visibleRange(el.scrollTop, el.clientHeight, total);
+      applyRange(next);
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    measure();
+    return () => ro.disconnect();
+  }, [applyRange, total]);
+
+  // Reset scroll when switching repos.
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    const el = scrollRef.current;
+    applyRange(visibleRange(0, el?.clientHeight ?? 0, total));
+  }, [repoId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Extend the rendered window when more history arrives (keep scroll position).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const next = nextRange(el.scrollTop, el.clientHeight, total, rangeRef.current);
+    if (next) applyRange(next);
+    else if (rangeRef.current.end > total) applyRange(visibleRange(el.scrollTop, el.clientHeight, total));
+  }, [total, applyRange]);
+
+  // Passive native scroll — no rAF, no React re-render unless the buffer shifts.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || total === 0) return;
+
+    const onScroll = () => {
+      const top = el.scrollTop;
+      const next = nextRange(top, el.clientHeight, total, rangeRef.current);
+      if (next) applyRange(next);
+
+      const { loadMoreHistory, hasMoreByRepo } = useReposStore.getState();
+      const hasMore = hasMoreByRepo[repoId] ?? false;
+      if (hasMore && !loading.current && top + el.clientHeight >= el.scrollHeight - ROW_H * 12) {
+        loading.current = true;
+        loadMoreHistory().finally(() => {
+          loading.current = false;
+        });
       }
-      edges.push({ d, color });
-    });
-  });
+    };
 
-  const totalH = commits.length * ROW;
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [repoId, total, applyRange]);
+
+  const onSelect = useCallback((hash: string) => {
+    useReposStore.getState().selectCommit(hash);
+  }, []);
+
+  const onContextMenu = useCallback((hash: string, x: number, y: number) => {
+    useUiStore.getState().openGraphMenu(hash, x, y);
+  }, []);
+
+  if (commits.length === 0) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-2 text-text-3 p-7.5">
+        <img src="/placeholder.svg" alt="" width={64} height={64} style={{ opacity: 0.5 }} />
+        <div className="text-[14px] font-semibold text-text-2">No commits yet</div>
+      </div>
+    );
+  }
+
+  const { start, end } = range;
+  const visible = [];
+  for (let i = start; i < end; i++) {
+    const c = commits[i];
+    visible.push(
+      <CommitRow
+        key={c.hash}
+        commit={c}
+        row={layout.rows[i]}
+        account={accountById.get(c.by)}
+        top={i * ROW_H}
+        selected={selected === c.hash}
+        onSelect={onSelect}
+        onContextMenu={onContextMenu}
+        hash={c.hash}
+      />,
+    );
+  }
 
   return (
-    <div className="flex-1 overflow-auto py-2 px-1.5">
-      <div className="relative" style={{ height: totalH, paddingLeft: graphW }}>
-        <svg
-          className="absolute top-0 left-0 pointer-events-none overflow-visible"
-          width={graphW}
-          height={totalH}
-          style={{ width: graphW, height: totalH }}
-        >
-          {edges.map((e, i) => (
-            <path key={i} d={e.d} stroke={e.color} strokeWidth={2} fill="none" strokeLinecap="round" opacity={0.85} />
-          ))}
-          {commits.map((c, i) => {
-            const x = nodeX(c.lane || 0);
-            const y = nodeY(i);
-            const col = laneColor(c.lane || 0);
-            const merge = (c.parents || []).length > 1;
-            return (
-              <g key={c.hash}>
-                <circle cx={x} cy={y} r={R + 3} fill={col} opacity={0.18} />
-                <circle cx={x} cy={y} r={R} fill={merge ? "var(--color-bg)" : col} stroke={col} strokeWidth={merge ? 2.5 : 0} />
-                {merge && <circle cx={x} cy={y} r={1.6} fill={col} />}
-              </g>
-            );
-          })}
-        </svg>
-        {commits.map((c) => {
-          const a = accounts.find((x) => x.id === c.by) || accounts[0];
-          const tip = `${c.subject}\n\n${a.name} <${a.email}>\n${c.when} · ${c.hash}${c.flag ? `\n⚠ committed as ${a.label}, not this repo's owner` : ""
-            }`;
-          const rc = laneColor(c.lane || 0);
-          const isSel = selected === c.hash;
-          return (
-            <div
-              key={c.hash}
-              className={`group relative flex items-center gap-2 pr-2.5 pl-0.5 rounded-[7px] cursor-pointer transition-colors duration-100 hover:bg-surface-2 ${isSel ? "bg-indigo/[0.14]" : ""
-                }`}
-              style={{ height: ROW }}
-              onClick={() => onSelect(c.hash)}
-              title={tip}
-            >
-              <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                {(c.refs || []).map((r) => (
-                  <span
-                    key={r.name}
-                    className="inline-flex items-center gap-1 font-mono text-[9.5px] font-semibold rounded-full py-px pr-1.5 pl-1.25 whitespace-nowrap flex-none leading-normal"
-                    style={{
-                      color: rc,
-                      background: `color-mix(in srgb, ${rc} 15%, transparent)`,
-                      border: `1px solid color-mix(in srgb, ${rc} 42%, transparent)`,
-                    }}
-                  >
-                    {r.head && (
-                      <span
-                        className="text-[7.5px] font-bold rounded-[9px] px-1 py-px tracking-[0.04em]"
-                        style={{ background: rc, color: "#0b0a16" }}
-                      >
-                        HEAD
-                      </span>
-                    )}
-                    {r.name}
-                  </span>
-                ))}
-                <span
-                  className={`flex-1 min-w-0 text-[12.5px] whitespace-nowrap overflow-hidden text-ellipsis text-text-2 group-hover:text-text ${isSel ? "text-text font-medium" : ""
-                    }`}
-                >
-                  {c.subject}
-                </span>
-              </div>
-              <div
-                className={`flex-none w-4.5 h-4.5 rounded-md grid place-items-center text-[#0b0a16] ${c.flag ? "shadow-[0_0_0_1.5px_var(--color-bg),0_0_0_3px_var(--color-amber)]" : ""
-                  }`}
-                style={{ background: `linear-gradient(150deg, ${a.color}, ${a.color}bb)` }}
-              >
-                <IdentityIcon icon={a.icon} s={11} />
-              </div>
-            </div>
-          );
-        })}
+    <div ref={scrollRef} className="flex-1 overflow-auto overscroll-contain">
+      <div className="relative" style={{ height: total * ROW_H }}>
+        {visible}
+        <GraphCanvas rows={layout.rows} start={start} end={end} selectedHash={selected} hashes={hashes} />
       </div>
+      {hasMore && (
+        <div className="flex items-center justify-center gap-2 py-3 text-[11px] text-text-3">
+          <span className="w-3 h-3 rounded-full border-2 border-text-3/30 border-t-text-3 animate-spin-fast" />
+          Loading more…
+        </div>
+      )}
     </div>
   );
 }

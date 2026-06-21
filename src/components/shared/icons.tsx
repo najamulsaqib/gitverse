@@ -9,6 +9,7 @@ import {
   Cloud,
   Copy,
   Filter,
+  FolderOpen,
   FolderGit2,
   GitBranch,
   Globe,
@@ -17,6 +18,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Settings,
   Terminal,
   Trash2,
@@ -24,6 +26,7 @@ import {
   Undo2,
   UserPlus,
   X,
+  SquareCode,
   type LucideIcon,
 } from "lucide-react";
 
@@ -40,12 +43,15 @@ function icon(Lucide: LucideIcon) {
 }
 
 export const IcRepo = icon(FolderGit2);
+export const IcFolderOpen = icon(FolderOpen);
+export const IcEditor = icon(SquareCode);
 export const IcBranch = icon(GitBranch);
 export const IcSync = icon(RefreshCw);
 export const IcChevron = icon(ChevronDown);
 export const IcCheck = icon(Check);
 export const IcPlus = icon(Plus);
 export const IcFilter = icon(Filter);
+export const IcSearch = icon(Search);
 export const IcLock = icon(Lock);
 export const IcGlobe = icon(Globe);
 export const IcCloud = icon(Cloud);

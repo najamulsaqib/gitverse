@@ -42,6 +42,17 @@ export interface ReposData {
   activeId: string | null;
 }
 
+/** A repo resolved with its owning profile, computed by the `repo_view` command
+ * so the toolbar renders it without joining repos to accounts on the client.
+ * `remote` is the "tracks a remote" flag, not the raw URL. */
+export interface RepoOwnerView {
+  id: string;
+  name: string;
+  remote: boolean;
+  ownerColor: string;
+  ownerLabel: string;
+}
+
 /** Details reported by `validate_repo` for the add-repo confirmation step. */
 export interface RepoCandidate {
   name: string;
@@ -53,6 +64,7 @@ export interface RepoCandidate {
 export interface Branch {
   name: string;
   current: boolean;
+  remote: boolean;
 }
 
 export interface SyncState {

@@ -110,6 +110,21 @@ body {
   font-family: var(--font-sans);
 }
 
+/* App chrome (rows, labels, the git graph, etc.) isn't text-selectable — it's a
+   desktop UI, not a document. Text inputs stay selectable, and the code diff
+   opts back in via Tailwind's `select-text` utility (see DiffView). */
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 /* Diff syntax-highlight tokens (output by components/shared/highlight.ts via
    dangerouslySetInnerHTML, so they can't be Tailwind utility classes) */
 .t-kw {

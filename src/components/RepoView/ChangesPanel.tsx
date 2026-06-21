@@ -5,6 +5,7 @@ import { Input } from "@/components/shared/Input";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { useReposStore } from "@/store/repos";
+import { useUiStore } from "@/store/ui";
 
 type FilterMode = "all" | "staged" | "unstaged" | "M" | "A" | "D";
 
@@ -31,6 +32,7 @@ export function ChangesPanel() {
   const selectFile = useReposStore((s) => s.selectFile);
   const toggleFile = useReposStore((s) => s.toggleFile);
   const toggleAll = useReposStore((s) => s.toggleAll);
+  const openFileMenu = useUiStore((s) => s.openFileMenu);
 
   const [mode, setMode] = useState<FilterMode>("all");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -97,10 +99,24 @@ export function ChangesPanel() {
           return (
             <div
               key={f.path}
-              className={`flex items-center gap-2.5 px-2 py-1.5 rounded-[7px] cursor-pointer transition-colors duration-100 hover:bg-surface-2 ${selected === f.path ? "bg-indigo/13" : ""
+              className={`relative flex items-center gap-2.5 px-2 py-1.5 rounded-[7px] cursor-pointer transition-all duration-150 ${selected === f.path ? "bg-indigo/13" : "hover:bg-surface-2"
                 }`}
               onClick={() => selectFile(f.path)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                selectFile(f.path);
+                openFileMenu(f.path, e.clientX, e.clientY);
+              }}
             >
+              {selected === f.path && (
+                <span
+                  className="absolute left-0 inset-y-0 w-0.75 rounded-l-[7px]"
+                  style={{
+                    background: "#7b72e8",
+                    boxShadow: "0 0 12px 1.5px #7b72e8",
+                  }}
+                />
+              )}
               <Checkbox checked={f.staged} onChange={() => toggleFile(f.path)} onClick={(e) => e.stopPropagation()} />
               <span className="flex-1 min-w-0 text-[12.5px] whitespace-nowrap overflow-hidden text-ellipsis [direction:rtl] text-left">
                 <span className="text-text-3">{dir}</span>

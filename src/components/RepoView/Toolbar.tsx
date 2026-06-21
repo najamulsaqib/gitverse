@@ -1,7 +1,8 @@
+import { useMemo } from "react";
 import { BranchMenu } from "@/components/RepoView/BranchMenu";
 import { IcArrowDn, IcArrowUp, IcBranch, IcChevron, IcCloud, IcRepo, IcSync } from "@/components/shared/icons";
 import { useClickOutside } from "@/hooks/useClickOutside";
-import { useProfilesStore } from "@/store/profiles";
+import { useRepoView } from "@/hooks/useRepoView";
 import { useReposStore } from "@/store/repos";
 import { useUiStore } from "@/store/ui";
 
@@ -27,8 +28,6 @@ function Stack({ label, value }: { label: string; value: string }) {
 }
 
 export function Toolbar() {
-  const accounts = useProfilesStore((s) => s.accounts);
-  const repos = useReposStore((s) => s.repos);
   const repoId = useReposStore((s) => s.repoId);
   const branch = useReposStore((s) => s.branchByRepo[repoId]);
   const branches = useReposStore((s) => s.branchesByRepo[repoId]);
@@ -45,29 +44,41 @@ export function Toolbar() {
   const sidePanelWidth = useUiStore((s) => s.sidePanelWidth);
   const branchRef = useClickOutside<HTMLDivElement>(() => setOpenMenu(null));
 
-  const repo = repos.find((r) => r.id === repoId);
-  if (!repo) return null;
-  const owner = accounts.find((a) => a.id === repo.owner) ?? accounts[0];
   const ahead = sync?.ahead ?? 0;
   const behind = sync?.behind ?? 0;
   const busy = syncPhase !== "idle";
 
-  // Resolve the sync section's label/sub/icon for the current state.
-  let syncLabel = "Fetch origin";
-  let syncSub = sync?.lastFetch ?? "";
-  let SyncIcon = IcSync;
-  if (busy) {
-    syncLabel = syncPhase === "pushing" ? "Pushing…" : syncPhase === "pulling" ? "Pulling…" : "Fetching…";
-    syncSub = progress ? `${progress.text} ${progress.pct}%` : "Contacting origin";
-  } else if (ahead > 0) {
-    syncLabel = "Push origin";
-    SyncIcon = IcArrowUp;
-    syncSub = `${ahead} local commit${ahead !== 1 ? "s" : ""}`;
-  } else if (behind > 0) {
-    syncLabel = "Pull origin";
-    SyncIcon = IcArrowDn;
-    syncSub = `${behind} commit${behind !== 1 ? "s" : ""} behind`;
-  }
+  // Resolve the sync section's label/sub/icon for the current state. Memoized so
+  // the derived view is stable across renders and recomputes only when an input
+  // actually changes. Must stay above any early return to satisfy the hook rules.
+  const { syncLabel, syncSub, SyncIcon } = useMemo(() => {
+    if (busy) {
+      return {
+        syncLabel: syncPhase === "pushing" ? "Pushing…" : syncPhase === "pulling" ? "Pulling…" : "Fetching…",
+        syncSub: progress ? `${progress.text} ${progress.pct}%` : "Contacting origin",
+        SyncIcon: IcSync,
+      };
+    }
+    if (ahead > 0) {
+      return {
+        syncLabel: "Push origin",
+        syncSub: `${ahead} local commit${ahead !== 1 ? "s" : ""}`,
+        SyncIcon: IcArrowUp,
+      };
+    }
+    if (behind > 0) {
+      return {
+        syncLabel: "Pull origin",
+        syncSub: `${behind} commit${behind !== 1 ? "s" : ""} behind`,
+        SyncIcon: IcArrowDn,
+      };
+    }
+    return { syncLabel: "Fetch origin", syncSub: sync?.lastFetch ?? "", SyncIcon: IcSync };
+  }, [busy, syncPhase, progress, ahead, behind, sync?.lastFetch]);
+
+  // Repo + owner resolved on the backend (repo_view) — no client-side join.
+  const repo = useRepoView(repoId);
+  if (!repo) return null;
 
   return (
     <div className="h-14 flex-none flex items-stretch bg-[#13111f] border-b border-border-soft">
@@ -78,7 +89,7 @@ export function Toolbar() {
         className="min-w-0 border-r border-border-soft"
       >
         <ToolbarButton onClick={toggleRepoSidebar} aria-expanded={repoSidebarOpen}>
-          <span className="grid place-items-center flex-none" style={{ color: owner?.color }}>
+          <span className="grid place-items-center flex-none" style={{ color: repo.ownerColor }}>
             {repo.remote ? <IcCloud /> : <IcRepo />}
           </span>
           <Stack label="Current Repository" value={repo.name} />

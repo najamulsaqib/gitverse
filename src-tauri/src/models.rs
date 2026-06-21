@@ -50,6 +50,19 @@ pub struct ReposData {
     pub active_id: Option<String>,
 }
 
+/// A repo resolved together with its owning profile, ready for the toolbar to
+/// render without any client-side joining. `remote` is the boolean "tracks a
+/// remote" flag rather than the raw URL.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoOwnerView {
+    pub id: String,
+    pub name: String,
+    pub remote: bool,
+    pub owner_color: String,
+    pub owner_label: String,
+}
+
 /// What `validate_repo` reports back for the confirmation step.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -111,6 +124,7 @@ pub struct Commit {
 pub struct Branch {
     pub name: String,
     pub current: bool,
+    pub remote: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

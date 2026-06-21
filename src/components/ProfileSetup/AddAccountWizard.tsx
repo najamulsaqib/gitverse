@@ -27,7 +27,7 @@ import { useProfilesStore } from "@/store/profiles";
 import { useUiStore } from "@/store/ui";
 import type { Account, SshKeyInfo } from "@/types";
 
-const COLORS = ["#7b72e8", "#1dccb2", "#e0a94e", "#e8506e", "#9b88ff", "#46b0e6"];
+const COLORS = ["#7b72e8", "#1dccb2", "#e8a04e", "#e85b8a", "#5b9ef0", "#c678e8", "#8fd14f", "#4fd1d1"];
 
 const STEPS = ["Identity", "Generate key", "Add public key", "Save & finish"];
 
@@ -46,9 +46,18 @@ function StepRail({ step }: { step: number }) {
       {STEPS.map((s, i) => (
         <div
           key={s}
-          className={`flex items-center gap-2.75 px-2.5 py-2.25 rounded-[9px] text-[13px] transition-colors duration-150 ${i === step ? "text-text bg-indigo/12" : i < step ? "text-text-2" : "text-text-3"
+          className={`relative flex items-center gap-2.75 px-2.5 py-2.25 rounded-[9px] text-[13px] transition-all duration-150 ${i === step ? "text-text bg-indigo/12" : i < step ? "text-text-2" : "text-text-3"
             }`}
         >
+          {i === step && (
+            <span
+              className="absolute left-0 inset-y-0 w-0.75 rounded-l-[9px]"
+              style={{
+                background: "#7b72e8",
+                boxShadow: "0 0 12px 1.5px #7b72e8",
+              }}
+            />
+          )}
           <span
             className={`w-5.5 h-5.5 rounded-[7px] grid place-items-center text-[11.5px] font-semibold flex-none border ${i === step
               ? "bg-indigo text-white border-indigo"
@@ -141,7 +150,7 @@ export function AddAccountWizard({ dismissible = true }: { dismissible?: boolean
   const [label, setLabel] = useState("");
   const [email, setEmail] = useState("");
   const [host, setHost] = useState("github.com");
-  const [color, setColor] = useState(COLORS[3]);
+  const [color, setColor] = useState(COLORS[0]);
   const [icon, setIcon] = useState(DEFAULT_IDENTITY_ICON);
   const [keygen, setKeygen] = useState<KeygenState>("idle");
   const [keyMode, setKeyMode] = useState<"generate" | "existing">("generate");
