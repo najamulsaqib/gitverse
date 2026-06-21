@@ -1,13 +1,20 @@
 // GitVerse — icon set, built on lucide-react (https://lucide.dev/icons/).
 
 import {
+  Archive,
+  ArchiveRestore,
   ArrowDown,
   ArrowUp,
   Check,
+  Cherry,
+  GitCommitHorizontal,
+  History,
   ChevronDown,
   Circle,
+  Cloud,
   Copy,
   Filter,
+  FolderOpen,
   FolderGit2,
   GitBranch,
   Globe,
@@ -16,12 +23,16 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Search,
   Settings,
   Terminal,
   Trash2,
+  TriangleAlert,
   Undo2,
   UserPlus,
   X,
+  SquareCode,
   type LucideIcon,
 } from "lucide-react";
 
@@ -38,14 +49,18 @@ function icon(Lucide: LucideIcon) {
 }
 
 export const IcRepo = icon(FolderGit2);
+export const IcFolderOpen = icon(FolderOpen);
+export const IcEditor = icon(SquareCode);
 export const IcBranch = icon(GitBranch);
 export const IcSync = icon(RefreshCw);
 export const IcChevron = icon(ChevronDown);
 export const IcCheck = icon(Check);
 export const IcPlus = icon(Plus);
 export const IcFilter = icon(Filter);
+export const IcSearch = icon(Search);
 export const IcLock = icon(Lock);
 export const IcGlobe = icon(Globe);
+export const IcCloud = icon(Cloud);
 export const IcCopy = icon(Copy);
 export const IcKey = icon(KeyRound);
 export const IcArrowUp = icon(ArrowUp);
@@ -57,6 +72,13 @@ export const IcSettings = icon(Settings);
 export const IcUserPlus = icon(UserPlus);
 export const IcEdit = icon(Pencil);
 export const IcTrash = icon(Trash2);
+export const IcAlert = icon(TriangleAlert);
+export const IcStash = icon(Archive);
+export const IcStashApply = icon(ArchiveRestore);
+export const IcCheckout = icon(GitCommitHorizontal);
+export const IcCherry = icon(Cherry);
+export const IcReset = icon(History);
+export const IcRevert = icon(RotateCcw);
 
 export const IcDot = ({ s = 8, color = "currentColor" }: { s?: number; color?: string }) => (
   <Circle size={s} fill={color} stroke="none" aria-hidden="true" />

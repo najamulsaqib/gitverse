@@ -9,7 +9,7 @@ export interface Account {
   handle: string;
   email: string;
   color: string;
-  initials: string;
+  icon: string;
   host: string;
   key: string;
   fp: string;
@@ -34,13 +34,23 @@ export interface Repo {
   owner: string;
   branch: string;
   path: string;
-  private: boolean;
   remote: string;
 }
 
 export interface ReposData {
   repos: Repo[];
   activeId: string | null;
+}
+
+/** A repo resolved with its owning profile, computed by the `repo_view` command
+ * so the toolbar renders it without joining repos to accounts on the client.
+ * `remote` is the "tracks a remote" flag, not the raw URL. */
+export interface RepoOwnerView {
+  id: string;
+  name: string;
+  remote: boolean;
+  ownerColor: string;
+  ownerLabel: string;
 }
 
 /** Details reported by `validate_repo` for the add-repo confirmation step. */
@@ -54,13 +64,19 @@ export interface RepoCandidate {
 export interface Branch {
   name: string;
   current: boolean;
+  remote: boolean;
 }
 
 export interface SyncState {
   ahead: number;
   behind: number;
+  /** Whether the branch tracks an upstream — false means nothing is pushed yet. */
+  upstream: boolean;
   lastFetch: string;
 }
+
+/** Whether the active identity can reach a repo's remote. */
+export type AccessState = "ok" | "denied" | "unknown";
 
 export type FileStatus = "M" | "A" | "D";
 
@@ -92,6 +108,15 @@ export interface CommitFileChange {
   del: number;
 }
 
+/** A single `git stash` entry. `index` is the volatile `stash@{index}` position;
+ * the store re-lists after every action so it always matches git's order. */
+export interface StashEntry {
+  index: number;
+  message: string;
+  branch: string;
+  when: string;
+}
+
 export interface Commit {
   hash: string;
   subject: string;
@@ -108,6 +133,12 @@ export interface Commit {
 }
 
 export type SyncPhase = "idle" | "fetching" | "pushing" | "pulling";
+
+/** Live progress for a network git op (mirrors Rust `GitProgress`). */
+export interface GitProgress {
+  pct: number;
+  text: string;
+}
 
 export interface ToastMessage {
   id: number;

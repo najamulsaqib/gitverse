@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+/// Live progress for a network git op, emitted as `git-progress` events.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitProgress {
+    pub pct: u8,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
@@ -10,7 +18,8 @@ pub struct Profile {
     pub handle: String,
     pub email: String,
     pub color: String,
-    pub initials: String,
+    #[serde(default)]
+    pub icon: String,
     pub host: String,
     pub key: String,
     pub fp: String,
@@ -31,7 +40,6 @@ pub struct Repo {
     pub owner: String,
     pub branch: String,
     pub path: String,
-    pub private: bool,
     pub remote: String,
 }
 
@@ -40,6 +48,19 @@ pub struct Repo {
 pub struct ReposData {
     pub repos: Vec<Repo>,
     pub active_id: Option<String>,
+}
+
+/// A repo resolved together with its owning profile, ready for the toolbar to
+/// render without any client-side joining. `remote` is the boolean "tracks a
+/// remote" flag rather than the raw URL.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoOwnerView {
+    pub id: String,
+    pub name: String,
+    pub remote: bool,
+    pub owner_color: String,
+    pub owner_label: String,
 }
 
 /// What `validate_repo` reports back for the confirmation step.
@@ -98,11 +119,24 @@ pub struct Commit {
     pub flag: bool,
 }
 
+/// A single entry in the stash list (`git stash list`). `index` is the volatile
+/// `stash@{index}` position — never trusted across operations; the frontend
+/// re-lists after every action so it always reflects git's current order.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StashEntry {
+    pub index: u32,
+    pub message: String,
+    pub branch: String,
+    pub when: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Branch {
     pub name: String,
     pub current: bool,
+    pub remote: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

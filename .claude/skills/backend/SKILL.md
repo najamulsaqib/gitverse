@@ -25,6 +25,15 @@ restructure other commands while you're in there.
 
 ## Conventions
 
+- **Own the processing — the frontend is a thin view.** Data shaping,
+  derivation, and business logic live here, not in React. Commands should return
+  ready-to-render view models: resolve relationships (e.g. join a repo to its
+  owner), compute counts, format strings/labels, and apply sorting/filtering
+  server-side so the frontend can render the result directly without loops,
+  `find`/`filter`/`reduce`, or multi-branch label resolution. When a frontend
+  task is tempted to process raw data on the client, the fix is usually to
+  add/extend a command here that returns the derived shape (add a matching
+  struct in `models.rs` + TS type). Keep this logic testable in plain Rust.
 - **Command signature:** `pub fn name(...) -> Result<T, String>`. Convert
   errors with `.map_err(|e| e.to_string())` so they surface in the frontend.
 - **Shell out, never reimplement.** Git and SSH operations run the system

@@ -1,56 +1,48 @@
-import { useEffect, useRef, useState } from "react";
-import { IcBranch, IcGlobe, IcRepo, IcX } from "@/components/shared/icons";
+import { useState } from "react";
+import { IcBranch, IcCloud, IcFolderOpen, IcGlobe, IcX } from "@/components/shared/icons";
 import { Button } from "@/components/shared/Button";
+import { Input } from "@/components/shared/Input";
 import { Modal } from "@/components/shared/Modal";
 import { Select } from "@/components/shared/Select";
-import { pickRepoFolder, validateRepo } from "@/hooks/useRepo";
+import { cloneRepo, pickRepoFolder } from "@/hooks/useRepo";
 import { useProfilesStore } from "@/store/profiles";
 import { useReposStore } from "@/store/repos";
 import { useUiStore } from "@/store/ui";
 import type { Repo, RepoCandidate } from "@/types";
 
-type Phase = "picking" | "error" | "confirm";
+type Phase = "form" | "cloning" | "confirm" | "error";
 
 function slugId(name: string): string {
   const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "repo";
   return `${base}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function AddRepoModal() {
+export function CloneRepoModal() {
   const accounts = useProfilesStore((s) => s.accounts);
   const activeId = useProfilesStore((s) => s.activeId);
-  const repos = useReposStore((s) => s.repos);
   const addRepo = useReposStore((s) => s.addRepo);
-  const updateRepo = useReposStore((s) => s.updateRepo);
-  const editRepoId = useUiStore((s) => s.editRepoId);
-  const closeAddRepo = useUiStore((s) => s.closeAddRepo);
-  const closeEditRepo = useUiStore((s) => s.closeEditRepo);
+  const close = useUiStore((s) => s.closeCloneRepo);
   const showToast = useUiStore((s) => s.showToast);
 
-  const editing = editRepoId ? repos.find((r) => r.id === editRepoId) : undefined;
-  const isEdit = !!editing;
-
-  const close = () => (isEdit ? closeEditRepo() : closeAddRepo());
-
-  const [phase, setPhase] = useState<Phase>(isEdit ? "confirm" : "picking");
-  const [candidate, setCandidate] = useState<RepoCandidate | null>(
-    editing ? { name: editing.name, path: editing.path, branch: editing.branch, remote: editing.remote } : null,
-  );
+  const [phase, setPhase] = useState<Phase>("form");
+  const [url, setUrl] = useState("");
+  const [destDir, setDestDir] = useState<string | null>(null);
+  const [candidate, setCandidate] = useState<RepoCandidate | null>(null);
+  const [owner, setOwner] = useState(activeId || accounts[0]?.id || "");
   const [error, setError] = useState("");
-  const [owner, setOwner] = useState(editing?.owner || activeId || accounts[0]?.id || "");
   const [saving, setSaving] = useState(false);
-  const startedRef = useRef(false);
 
-  async function pick() {
-    setPhase("picking");
-    setError("");
+  async function chooseFolder() {
     const path = await pickRepoFolder();
-    if (path === null) {
-      close();
-      return;
-    }
+    if (path !== null) setDestDir(path);
+  }
+
+  async function clone() {
+    if (!url.trim() || !destDir) return;
+    setPhase("cloning");
+    setError("");
     try {
-      const found = await validateRepo(path);
+      const found = await cloneRepo(url.trim(), destDir);
       setCandidate(found);
       setPhase("confirm");
     } catch (e) {
@@ -59,37 +51,20 @@ export function AddRepoModal() {
     }
   }
 
-  // In add mode, open the native folder picker as soon as the modal mounts (once).
-  useEffect(() => {
-    if (isEdit || startedRef.current) return;
-    startedRef.current = true;
-    pick();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   async function confirm() {
     if (!candidate || !owner) return;
     setSaving(true);
     try {
-      if (isEdit && editing) {
-        await updateRepo({ ...editing, owner });
-        showToast({
-          title: `Updated ${editing.name}`,
-          sub: "Linked identity changed",
-          color: accounts.find((a) => a.id === owner)?.color,
-        });
-      } else {
-        const repo: Repo = {
-          id: slugId(candidate.name),
-          name: candidate.name,
-          owner,
-          branch: candidate.branch,
-          path: candidate.path,
-          remote: candidate.remote,
-        };
-        await addRepo(repo);
-        showToast({ title: `Added ${repo.name}`, sub: repo.path, color: accounts.find((a) => a.id === owner)?.color });
-      }
+      const repo: Repo = {
+        id: slugId(candidate.name),
+        name: candidate.name,
+        owner,
+        branch: candidate.branch,
+        path: candidate.path,
+        remote: candidate.remote,
+      };
+      await addRepo(repo);
+      showToast({ title: `Cloned ${repo.name}`, sub: repo.path, color: accounts.find((a) => a.id === owner)?.color });
       close();
     } catch (e) {
       setSaving(false);
@@ -102,11 +77,9 @@ export function AddRepoModal() {
     <Modal onClose={close} className="w-110">
       <div className="flex items-center gap-2.5 px-5 py-4 border-b border-border-soft">
         <span className="grid place-items-center text-teal">
-          <IcRepo s={16} />
+          <IcCloud s={16} />
         </span>
-        <span className="text-[14px] font-semibold text-text">
-          {isEdit ? "Edit repository" : "Add local repository"}
-        </span>
+        <span className="text-[14px] font-semibold text-text">Clone remote repository</span>
         <button
           className="ml-auto grid place-items-center w-7 h-7 rounded-lg text-text-3 hover:bg-surface-2 hover:text-text transition-colors"
           onClick={close}
@@ -115,15 +88,34 @@ export function AddRepoModal() {
         </button>
       </div>
 
-      {phase === "picking" && (
-        <div className="px-5 py-8 text-center text-[13px] text-text-3">Opening folder picker…</div>
-      )}
-
-      {phase === "error" && (
+      {phase === "form" && (
         <>
-          <div className="px-5 py-5">
-            <div className="rounded-xl border border-red/30 bg-red/8 px-4 py-3.5 text-[13px] text-red leading-relaxed">
-              {error}
+          <div className="px-5 py-5 space-y-4">
+            <div className="space-y-1.75">
+              <label className="text-[12.5px] text-text-3">SSH URL</label>
+              <Input
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="git@github.com:owner/repo.git"
+                className="w-full font-mono"
+                autoFocus
+                spellCheck={false}
+              />
+              <p className="text-[11.5px] text-text-3 leading-relaxed">
+                Use the SSH URL, not HTTPS — GitVerse authenticates with your per-identity SSH key.
+              </p>
+            </div>
+            <div className="space-y-1.75">
+              <label className="text-[12.5px] text-text-3">Clone into</label>
+              <button
+                className="flex items-center gap-2.5 w-full text-left rounded-lg border border-border bg-bg px-2.75 py-2.25 text-[13px] hover:border-indigo transition-colors"
+                onClick={chooseFolder}
+              >
+                <IcFolderOpen s={15} className="flex-none text-text-3" />
+                <span className={`min-w-0 break-all ${destDir ? "text-text-2 font-mono text-[12.5px]" : "text-text-3"}`}>
+                  {destDir ?? "Choose a destination folder…"}
+                </span>
+              </button>
             </div>
           </div>
           <div className="flex justify-end gap-2 px-5 py-4 border-t border-border-soft">
@@ -132,9 +124,32 @@ export function AddRepoModal() {
             </Button>
             <Button
               className="px-4 py-2.25 rounded-lg text-[13px]"
-              onClick={isEdit ? () => setPhase("confirm") : pick}
+              disabled={!url.trim() || !destDir}
+              onClick={clone}
             >
-              {isEdit ? "Back" : "Choose another folder"}
+              Clone
+            </Button>
+          </div>
+        </>
+      )}
+
+      {phase === "cloning" && (
+        <div className="px-5 py-8 text-center text-[13px] text-text-3">Cloning repository…</div>
+      )}
+
+      {phase === "error" && (
+        <>
+          <div className="px-5 py-5">
+            <div className="rounded-xl border border-red/30 bg-red/8 px-4 py-3.5 text-[13px] text-red leading-relaxed whitespace-pre-wrap wrap-break-word">
+              {error}
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 px-5 py-4 border-t border-border-soft">
+            <Button variant="ghost" onClick={close}>
+              Cancel
+            </Button>
+            <Button className="px-4 py-2.25 rounded-lg text-[13px]" onClick={() => setPhase("form")}>
+              Back
             </Button>
           </div>
         </>
@@ -186,10 +201,10 @@ export function AddRepoModal() {
             </Button>
             <Button
               className="px-4 py-2.25 rounded-lg text-[13px]"
-              disabled={saving || !owner || (isEdit && owner === editing?.owner)}
+              disabled={saving || !owner}
               onClick={confirm}
             >
-              {saving ? "Saving…" : isEdit ? "Save changes" : "Add repository"}
+              {saving ? "Saving…" : "Add repository"}
             </Button>
           </div>
         </>

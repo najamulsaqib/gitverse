@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { CommitDetail } from "@/components/RepoView/CommitDetail";
 import { DiffView } from "@/components/RepoView/DiffView";
+import { RepoEmptyState } from "@/components/RepoView/RepoEmptyState";
+import { StashDetail } from "@/components/RepoView/StashDetail";
 import { gitDiff } from "@/hooks/useGit";
 import { useProfilesStore } from "@/store/profiles";
 import { useReposStore } from "@/store/repos";
@@ -16,6 +18,8 @@ export function MainPanel() {
   const selectedFile = useReposStore((s) => s.selFile);
   const history = useReposStore((s) => s.historyByRepo[repoId]) ?? [];
   const selectedCommit = useReposStore((s) => s.selCommit);
+  const stashes = useReposStore((s) => s.stashesByRepo[repoId]) ?? [];
+  const selectedStash = useReposStore((s) => s.selStash);
 
   const repo = repos.find((r) => r.id === repoId);
   const f = files.find((x) => x.path === selectedFile) ?? files[0];
@@ -37,26 +41,28 @@ export function MainPanel() {
 
   if (!repo) return null;
 
+  if (tab === "stash") {
+    const s = stashes.find((x) => x.index === selectedStash) ?? stashes[0];
+    if (!s) {
+      return <RepoEmptyState title="No stashes" subtitle="Stash changes to see them here." repoPath={repo.path} />;
+    }
+    return <StashDetail key={s.index} stash={s} repoPath={repo.path} />;
+  }
+
   if (tab === "history") {
     const c = history.find((x) => x.hash === selectedCommit) ?? history[0];
-    if (!c)
+    if (!c) {
       return (
-        <div className="flex-1 flex flex-col items-center justify-center gap-2 text-text-3 p-7.5">
-          <img src="/placeholder.svg" alt="" width={64} height={64} style={{ opacity: 0.5 }} />
-          <div className="text-[14px] font-semibold text-text-2">No commits yet</div>
-        </div>
+        <RepoEmptyState title="No commits yet" subtitle="This repository has no commit history." repoPath={repo.path} />
       );
-    const a = accounts.find((x) => x.id === c.by) ?? accounts[0];
+    }
+    const a = accounts.find((x) => x.id === c.by);
     return <CommitDetail key={c.hash} commit={c} account={a} repoPath={repo.path} />;
   }
 
   if (!f) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-2 text-text-3 p-7.5">
-        <img src="/placeholder.svg" alt="" width={64} height={64} style={{ opacity: 0.5 }} />
-        <div className="text-[14px] font-semibold text-text-2">No local changes</div>
-        <div className="text-[12px]">Working tree clean.</div>
-      </div>
+      <RepoEmptyState title="No local changes" subtitle="Working tree clean." repoPath={repo.path} />
     );
   }
 

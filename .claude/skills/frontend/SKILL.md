@@ -26,6 +26,21 @@ restructure existing components/slices while you're in there.
 
 ## Conventions
 
+- **Thin frontend — push processing to the backend.** Treat each component as a
+  "page" that renders data and forwards user intent. Data shaping, derivation,
+  and business logic belong in Rust commands (`src-tauri/`), not in components,
+  hooks, or stores. The frontend should receive data already in the shape it
+  renders. Concretely, the backend should return ready-to-render view models
+  (labels, counts, formatted strings, resolved relationships, sort/filter
+  results) rather than the frontend computing them from raw data. Acceptable FE
+  processing is limited to: trivial presentational glue (conditional classNames,
+  `key`s), wiring event handlers, and view-only local UI state (open/closed,
+  hover). If you catch yourself writing loops, `find`/`filter`/`reduce` over
+  domain data, multi-branch label/icon resolution, formatting, or joining
+  records by id inside a component/hook/store, stop and move it into the
+  relevant Tauri command (see the backend skill). When the data isn't yet
+  exposed that way, add/extend the command to return the derived shape instead
+  of computing it on the client.
 - **Imports use the `@/` alias, never relative paths.**
   `import { Button } from "@/components/shared/Button"`, not `../../shared/...`.
   The alias maps to `src/` via `tsconfig.json` `paths` and `vite.config.ts`
@@ -62,6 +77,17 @@ restructure existing components/slices while you're in there.
   opacity shorthand: `bg-amber/[0.12]` → `bg-amber/12`. When porting pixel
   values from the design handoff, convert to the scale up front instead of
   leaving arbitrary values for the linter to rewrite later.
+- **Render large lists progressively, never all at once.** Any list that can
+  grow unbounded (diff lines, commit history, file lists, search results) must
+  paint an initial chunk and append more as the user scrolls — dumping thousands
+  of rows into the DOM freezes the app (e.g. a 15k-line diff). The canonical
+  pattern is `useProgressiveCount` in
+  [src/components/RepoView/DiffView.tsx](../../../src/components/RepoView/DiffView.tsx):
+  hold a `count` in state (start at one `CHUNK`), render `items.slice(0, count)`,
+  and bump `count` by `CHUNK` via an `IntersectionObserver` on a bottom sentinel,
+  resetting `count` when the source data changes. Reuse this approach (or true
+  windowing like the absolutely-positioned virtualised rows in `LogGraph/`) for
+  every new long list rather than mapping the full array.
 - **Types:** keep `src/types/index.ts` in sync with `src-tauri/src/models.rs`
   (camelCase fields on both sides via `serde(rename_all = "camelCase")`). If a
   task changes one, update the other in the same change.

@@ -61,7 +61,7 @@ export function AccountRail() {
               {isActive && (
                 <span
                   className="absolute -left-2.5 top-1/2 -translate-y-1/2 w-1 h-5.5 rounded-r-[3px]"
-                  style={{ background: a.color }}
+                  style={{ background: a.color, boxShadow: `0 0 12px 1.5px ${a.color}` }}
                 />
               )}
               <span
