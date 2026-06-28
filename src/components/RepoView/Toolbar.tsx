@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { BranchMenu } from "@/components/RepoView/BranchMenu";
-import { IcArrowDn, IcArrowUp, IcBranch, IcChevron, IcCloud, IcRepo, IcSync } from "@/components/shared/icons";
+import { StashMenu } from "@/components/RepoView/StashMenu";
+import { IcArrowDn, IcArrowUp, IcBranch, IcChevron, IcCloud, IcRepo, IcStash, IcSync } from "@/components/shared/icons";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { useRepoView } from "@/hooks/useRepoView";
 import { useReposStore } from "@/store/repos";
@@ -31,6 +32,7 @@ export function Toolbar() {
   const repoId = useReposStore((s) => s.repoId);
   const branch = useReposStore((s) => s.branchByRepo[repoId]);
   const branches = useReposStore((s) => s.branchesByRepo[repoId]);
+  const stashes = useReposStore((s) => s.stashesByRepo[repoId]) ?? [];
   const sync = useReposStore((s) => s.syncByRepo[repoId]);
   const selectBranch = useReposStore((s) => s.selectBranch);
   const runSync = useReposStore((s) => s.runSync);
@@ -42,7 +44,10 @@ export function Toolbar() {
   const syncPhase = useUiStore((s) => s.syncPhase);
   const progress = useUiStore((s) => s.progress);
   const sidePanelWidth = useUiStore((s) => s.sidePanelWidth);
-  const branchRef = useClickOutside<HTMLDivElement>(() => setOpenMenu(null));
+  // Each ref only dismisses its own popover — otherwise a click inside one menu
+  // would trip the other's outside-handler and close it before the click lands.
+  const branchRef = useClickOutside<HTMLDivElement>(() => openMenu === "branch" && setOpenMenu(null));
+  const stashRef = useClickOutside<HTMLDivElement>(() => openMenu === "stash" && setOpenMenu(null));
 
   const ahead = sync?.ahead ?? 0;
   const behind = sync?.behind ?? 0;
@@ -120,6 +125,25 @@ export function Toolbar() {
           />
         )}
       </div>
+
+      {/* Stash — on-demand: only shown when stashes exist. A circular button
+          with the count; click opens the list of stashes in a popover. */}
+      {stashes.length > 0 && (
+        <div ref={stashRef} className="relative flex items-center px-3 flex-none border-r border-border-soft">
+          <button
+            className="relative grid place-items-center w-9 h-9 rounded-full text-text-2 bg-surface-2 border border-border transition-colors duration-100 hover:bg-surface-3 hover:text-text aria-expanded:bg-indigo/15 aria-expanded:border-indigo/40 aria-expanded:text-indigo-light"
+            onClick={() => setOpenMenu(openMenu === "stash" ? null : "stash")}
+            aria-expanded={openMenu === "stash"}
+            title={`${stashes.length} stash${stashes.length !== 1 ? "es" : ""}`}
+          >
+            <IcStash s={16} />
+            <span className="absolute -top-1 -right-1 min-w-4.5 h-4.5 px-1 grid place-items-center text-[10.5px] font-semibold font-mono rounded-full bg-indigo text-white border-2 border-[#13111f]">
+              {stashes.length}
+            </span>
+          </button>
+          {openMenu === "stash" && <StashMenu />}
+        </div>
+      )}
 
       {/* Sync — bold label on top, status below, live progress fill while busy */}
       <div className="relative w-67 flex-none min-w-0">

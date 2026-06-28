@@ -1,6 +1,5 @@
 import { ChangesPanel } from "@/components/RepoView/ChangesPanel";
 import { CommitBox } from "@/components/RepoView/CommitBox";
-import { StashPanel } from "@/components/RepoView/StashPanel";
 import { HistoryPane } from "@/components/LogGraph/HistoryPane";
 import { useReposStore } from "@/store/repos";
 import { useUiStore } from "@/store/ui";
@@ -11,12 +10,10 @@ export function SidePanel() {
   const setTab = useUiStore((s) => s.setTab);
   const repoId = useReposStore((s) => s.repoId);
   const files = useReposStore((s) => s.filesByRepo[repoId]) ?? [];
-  const stashes = useReposStore((s) => s.stashesByRepo[repoId]) ?? [];
 
   const tabs: { key: SidebarTab; label: string; count?: number }[] = [
     { key: "changes", label: "Changes", count: files.length },
     { key: "history", label: "History" },
-    { key: "stash", label: "Stash", count: stashes.length },
   ];
   const activeIndex = tabs.findIndex((t) => t.key === tab);
 
@@ -40,7 +37,7 @@ export function SidePanel() {
           </button>
         ))}
         <span
-          className="absolute -bottom-px left-0 w-1/3 h-0.5 bg-indigo transition-transform duration-220 ease-[cubic-bezier(0.5,0.1,0.3,1)]"
+          className="absolute -bottom-px left-0 w-1/2 h-0.5 bg-indigo transition-transform duration-220 ease-[cubic-bezier(0.5,0.1,0.3,1)]"
           style={{ transform: `translateX(${activeIndex * 100}%)` }}
         />
       </div>
@@ -58,8 +55,6 @@ export function SidePanel() {
           )}
           {files.length > 0 && <CommitBox />}
         </>
-      ) : tab === "stash" ? (
-        <StashPanel />
       ) : (
         <HistoryPane />
       )}

@@ -4,6 +4,7 @@ import { AddAccountWizard } from "@/components/ProfileSetup/AddAccountWizard";
 import { EditAccountModal } from "@/components/ProfileSetup/EditAccountModal";
 import { AddRepoModal } from "@/components/RepoView/AddRepoModal";
 import { CloneRepoModal } from "@/components/RepoView/CloneRepoModal";
+import { DropStashModal } from "@/components/RepoView/DropStashModal";
 import { MainPanel } from "@/components/RepoView/MainPanel";
 import { NewBranchModal } from "@/components/RepoView/NewBranchModal";
 import { StashModal } from "@/components/RepoView/StashModal";
@@ -29,6 +30,7 @@ function App() {
   const addRepoModalOpen = useUiStore((s) => s.addRepoModalOpen);
   const cloneRepoModalOpen = useUiStore((s) => s.cloneRepoModalOpen);
   const stashModalOpen = useUiStore((s) => s.stashModalOpen);
+  const stashDropIndex = useUiStore((s) => s.stashDropIndex);
   const editRepoId = useUiStore((s) => s.editRepoId);
   const editAccountId = useUiStore((s) => s.editAccountId);
   const newBranch = useUiStore((s) => s.newBranch);
@@ -126,8 +128,12 @@ function App() {
       const ui = useUiStore.getState();
       if (ui.newBranch) {
         ui.closeNewBranch();
+      } else if (ui.stashDropIndex != null) {
+        ui.closeDropStash();
       } else if (ui.stashModalOpen) {
         ui.closeStashModal();
+      } else if (ui.stashView != null) {
+        ui.closeStashView();
       } else if (ui.graphMenu) {
         ui.closeGraphMenu();
       } else if (ui.openMenu) {
@@ -226,6 +232,7 @@ function App() {
         {(addRepoModalOpen || editRepoId) && <AddRepoModal />}
         {cloneRepoModalOpen && <CloneRepoModal />}
         {stashModalOpen && <StashModal />}
+        {stashDropIndex != null && <DropStashModal />}
         {newBranch && <NewBranchModal />}
         {editAccountId && <EditAccountModal />}
         <RepoContextMenu />

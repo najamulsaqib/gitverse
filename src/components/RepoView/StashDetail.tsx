@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { DiffView } from "@/components/RepoView/DiffView";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { IcBranch, IcStash, IcStashApply, IcUndo } from "@/components/shared/icons";
+import { IcBranch, IcStash, IcStashApply, IcUndo, IcX } from "@/components/shared/icons";
+import { IconButton } from "@/components/shared/IconButton";
 import { gitStashChanges, gitStashDiff } from "@/hooks/useGit";
 import { useReposStore } from "@/store/repos";
 import type { CommitFileChange, DiffLine, StashEntry } from "@/types";
@@ -46,11 +47,12 @@ function StashFileRow({ f, selected, onSelect }: StashFileRowProps) {
 interface StashDetailProps {
   stash: StashEntry;
   repoPath: string;
+  onClose: () => void;
 }
 
 /** Inspect a single stash: its file changes (left) and per-file diff (right),
  * plus Apply / Pop actions in the header. Mirrors CommitDetail. */
-export function StashDetail({ stash, repoPath }: StashDetailProps) {
+export function StashDetail({ stash, repoPath, onClose }: StashDetailProps) {
   const applyStash = useReposStore((s) => s.applyStash);
   const popStash = useReposStore((s) => s.popStash);
 
@@ -126,6 +128,13 @@ export function StashDetail({ stash, repoPath }: StashDetailProps) {
         >
           <IcUndo s={14} /> Pop
         </button>
+        <IconButton
+          className="w-8 h-8 rounded-lg text-text-3 hover:bg-surface-2 hover:text-text"
+          onClick={onClose}
+          title="Close stash"
+        >
+          <IcX s={15} />
+        </IconButton>
       </div>
       <div className="flex-1 flex min-h-0">
         <div className="w-68 flex-none border-r border-border-soft bg-[#13111f] flex flex-col min-h-0">

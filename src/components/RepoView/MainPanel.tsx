@@ -11,6 +11,8 @@ import type { DiffLine } from "@/types";
 
 export function MainPanel() {
   const tab = useUiStore((s) => s.tab);
+  const stashView = useUiStore((s) => s.stashView);
+  const closeStashView = useUiStore((s) => s.closeStashView);
   const accounts = useProfilesStore((s) => s.accounts);
   const repos = useReposStore((s) => s.repos);
   const repoId = useReposStore((s) => s.repoId);
@@ -19,7 +21,6 @@ export function MainPanel() {
   const history = useReposStore((s) => s.historyByRepo[repoId]) ?? [];
   const selectedCommit = useReposStore((s) => s.selCommit);
   const stashes = useReposStore((s) => s.stashesByRepo[repoId]) ?? [];
-  const selectedStash = useReposStore((s) => s.selStash);
 
   const repo = repos.find((r) => r.id === repoId);
   const f = files.find((x) => x.path === selectedFile) ?? files[0];
@@ -41,12 +42,10 @@ export function MainPanel() {
 
   if (!repo) return null;
 
-  if (tab === "stash") {
-    const s = stashes.find((x) => x.index === selectedStash) ?? stashes[0];
-    if (!s) {
-      return <RepoEmptyState title="No stashes" subtitle="Stash changes to see them here." repoPath={repo.path} />;
-    }
-    return <StashDetail key={s.index} stash={s} repoPath={repo.path} />;
+  // A stash opened from the toolbar takes over the panel regardless of the tab.
+  if (stashView != null) {
+    const s = stashes.find((x) => x.index === stashView);
+    if (s) return <StashDetail key={s.index} stash={s} repoPath={repo.path} onClose={closeStashView} />;
   }
 
   if (tab === "history") {
