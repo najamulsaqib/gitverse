@@ -23,7 +23,15 @@ fn read_repos(app: &tauri::AppHandle) -> Result<ReposData, String> {
     }
 
     let contents = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&contents).map_err(|e| e.to_string())
+    let mut data: ReposData = serde_json::from_str(&contents).map_err(|e| e.to_string())?;
+
+    // Repos pinned before the verbatim-prefix fix were stored with the `\\?\`
+    // prefix; clean them on read so display and git operations get a normal path.
+    for repo in &mut data.repos {
+        repo.path = strip_verbatim_prefix(&repo.path);
+    }
+
+    Ok(data)
 }
 
 fn write_repos(app: &tauri::AppHandle, data: &ReposData) -> Result<(), String> {
@@ -32,12 +40,27 @@ fn write_repos(app: &tauri::AppHandle, data: &ReposData) -> Result<(), String> {
     std::fs::write(&path, contents).map_err(|e| e.to_string())
 }
 
+/// Strip Windows' extended-length "verbatim" path prefix. `canonicalize()` on
+/// Windows returns paths like `\\?\D:\projects\gitverse`, which surfaces in the
+/// UI as an invalid-looking path and confuses some external tools. Verbatim UNC
+/// paths (`\\?\UNC\server\share`) collapse back to `\\server\share`. No-op on
+/// other platforms and on paths that lack the prefix.
+fn strip_verbatim_prefix(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = path.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        path.to_string()
+    }
+}
+
 /// Resolve a folder to its canonical, absolute path string for stable comparison.
 fn canonical(path: &str) -> Result<String, String> {
     let canonical = Path::new(path)
         .canonicalize()
         .map_err(|_| "That folder could not be found.".to_string())?;
-    Ok(canonical.to_string_lossy().to_string())
+    Ok(strip_verbatim_prefix(&canonical.to_string_lossy()))
 }
 
 /// Run a git command in `dir` and return trimmed stdout, or `None` on failure.
