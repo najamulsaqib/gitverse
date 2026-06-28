@@ -44,8 +44,10 @@ export function Toolbar() {
   const syncPhase = useUiStore((s) => s.syncPhase);
   const progress = useUiStore((s) => s.progress);
   const sidePanelWidth = useUiStore((s) => s.sidePanelWidth);
-  const branchRef = useClickOutside<HTMLDivElement>(() => setOpenMenu(null));
-  const stashRef = useClickOutside<HTMLDivElement>(() => setOpenMenu(null));
+  // Each ref only dismisses its own popover — otherwise a click inside one menu
+  // would trip the other's outside-handler and close it before the click lands.
+  const branchRef = useClickOutside<HTMLDivElement>(() => openMenu === "branch" && setOpenMenu(null));
+  const stashRef = useClickOutside<HTMLDivElement>(() => openMenu === "stash" && setOpenMenu(null));
 
   const ahead = sync?.ahead ?? 0;
   const behind = sync?.behind ?? 0;

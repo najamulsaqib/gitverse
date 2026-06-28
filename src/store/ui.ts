@@ -12,6 +12,9 @@ interface UiState {
    * stash is open. Stashes are reached on-demand via the toolbar button, not a
    * persistent tab, so this lives outside `tab`. */
   stashView: number | null;
+  /** Index of the stash pending drop-confirmation, or `null`. Drives an
+   * App-level confirm modal, mounted like every other modal. */
+  stashDropIndex: number | null;
   openMenu: string | null;
   syncPhase: SyncPhase;
   progress: GitProgress | null;
@@ -34,6 +37,8 @@ interface UiState {
   setTab: (tab: SidebarTab) => void;
   openStashView: (index: number) => void;
   closeStashView: () => void;
+  openDropStash: (index: number) => void;
+  closeDropStash: () => void;
   setOpenMenu: (menu: string | null) => void;
   setSyncPhase: (phase: SyncPhase) => void;
   setProgress: (progress: GitProgress | null) => void;
@@ -70,6 +75,7 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
 export const useUiStore = create<UiState>((set) => ({
   tab: "changes",
   stashView: null,
+  stashDropIndex: null,
   openMenu: null,
   syncPhase: "idle",
   progress: null,
@@ -91,6 +97,8 @@ export const useUiStore = create<UiState>((set) => ({
   setTab: (tab) => set({ tab, stashView: null }),
   openStashView: (index) => set({ stashView: index, openMenu: null }),
   closeStashView: () => set({ stashView: null }),
+  openDropStash: (index) => set({ stashDropIndex: index, openMenu: null }),
+  closeDropStash: () => set({ stashDropIndex: null }),
   setOpenMenu: (menu) => set({ openMenu: menu }),
   setSyncPhase: (phase) => set(phase === "idle" ? { syncPhase: phase, progress: null } : { syncPhase: phase }),
   setProgress: (progress) => set({ progress }),
