@@ -1,13 +1,17 @@
 import { create } from "zustand";
 import type { GitProgress, SyncPhase, ToastMessage } from "@/types";
 
-export type SidebarTab = "changes" | "history" | "stash";
+export type SidebarTab = "changes" | "history";
 
 const SIDE_PANEL_MIN = 280;
 const SIDE_PANEL_MAX = 560;
 
 interface UiState {
   tab: SidebarTab;
+  /** Index of the stash whose diff is shown in the main panel, or `null` when no
+   * stash is open. Stashes are reached on-demand via the toolbar button, not a
+   * persistent tab, so this lives outside `tab`. */
+  stashView: number | null;
   openMenu: string | null;
   syncPhase: SyncPhase;
   progress: GitProgress | null;
@@ -28,6 +32,8 @@ interface UiState {
   accountMenu: { id: string; x: number; y: number } | null;
   editAccountId: string | null;
   setTab: (tab: SidebarTab) => void;
+  openStashView: (index: number) => void;
+  closeStashView: () => void;
   setOpenMenu: (menu: string | null) => void;
   setSyncPhase: (phase: SyncPhase) => void;
   setProgress: (progress: GitProgress | null) => void;
@@ -63,6 +69,7 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useUiStore = create<UiState>((set) => ({
   tab: "changes",
+  stashView: null,
   openMenu: null,
   syncPhase: "idle",
   progress: null,
@@ -81,7 +88,9 @@ export const useUiStore = create<UiState>((set) => ({
   accountMenu: null,
   editAccountId: null,
 
-  setTab: (tab) => set({ tab }),
+  setTab: (tab) => set({ tab, stashView: null }),
+  openStashView: (index) => set({ stashView: index, openMenu: null }),
+  closeStashView: () => set({ stashView: null }),
   setOpenMenu: (menu) => set({ openMenu: menu }),
   setSyncPhase: (phase) => set(phase === "idle" ? { syncPhase: phase, progress: null } : { syncPhase: phase }),
   setProgress: (progress) => set({ progress }),

@@ -51,7 +51,6 @@ interface ReposState {
   stashesByRepo: Record<string, StashEntry[]>;
   selFile: string | null;
   selCommit: string | null;
-  selStash: number | null;
   filter: string;
   summary: string;
   desc: string;
@@ -73,7 +72,6 @@ interface ReposState {
   resetToCommit: (hash: string, mode: "soft" | "mixed" | "hard") => Promise<void>;
   selectFile: (path: string) => void;
   selectCommit: (hash: string) => void;
-  selectStash: (index: number) => void;
   saveStash: (message: string, includeUntracked: boolean) => Promise<void>;
   stashFile: (path: string) => Promise<void>;
   applyStash: (index: number) => Promise<void>;
@@ -140,7 +138,6 @@ export const useReposStore = create<ReposState>((set, get) => ({
   stashesByRepo: {},
   selFile: null,
   selCommit: null,
-  selStash: null,
   filter: "",
   summary: "",
   desc: "",
@@ -185,7 +182,8 @@ export const useReposStore = create<ReposState>((set, get) => ({
   selectRepo: (id) => {
     const state = get();
     if (id === state.repoId) return;
-    set({ repoId: id, selFile: null, selCommit: null, selStash: null, filter: "", summary: "", desc: "", coAuthors: [] });
+    set({ repoId: id, selFile: null, selCommit: null, filter: "", summary: "", desc: "", coAuthors: [] });
+    useUiStore.getState().closeStashView();
     useUiStore.getState().setTab("changes");
     useUiStore.getState().setSyncPhase("idle");
 
@@ -257,12 +255,6 @@ export const useReposStore = create<ReposState>((set, get) => ({
           let selCommit = state.selCommit;
           if (nextHistory.length && !nextHistory.some((c) => c.hash === selCommit)) selCommit = nextHistory[0].hash;
 
-          // Stash indexes shift after every pop/drop, so re-anchor the selection
-          // to a still-existing entry (or clear it when the stash is now empty).
-          let selStash = state.selStash;
-          if (stashes.length && !stashes.some((s) => s.index === selStash)) selStash = stashes[0].index;
-          else if (!stashes.length) selStash = null;
-
           return {
             branchByRepo: { ...state.branchByRepo, [repoId]: status.branch },
             branchesByRepo: branches ? { ...state.branchesByRepo, [repoId]: branches } : state.branchesByRepo,
@@ -282,9 +274,15 @@ export const useReposStore = create<ReposState>((set, get) => ({
             stashesByRepo: { ...state.stashesByRepo, [repoId]: stashes },
             selFile,
             selCommit,
-            selStash,
           };
         });
+
+        // A stash open in the main panel may have been popped/dropped (here or
+        // by an external git command the watcher caught) — close it if it's gone.
+        const stashView = useUiStore.getState().stashView;
+        if (stashView != null && !stashes.some((s) => s.index === stashView)) {
+          useUiStore.getState().closeStashView();
+        }
 
         // Drain any request that arrived while we were awaiting git above.
         cur = refreshQueued;
@@ -459,9 +457,14 @@ export const useReposStore = create<ReposState>((set, get) => ({
     await get().refresh();
   },
 
-  selectFile: (path) => set({ selFile: path }),
-  selectCommit: (hash) => set({ selCommit: hash }),
-  selectStash: (index) => set({ selStash: index }),
+  selectFile: (path) => {
+    set({ selFile: path });
+    useUiStore.getState().closeStashView();
+  },
+  selectCommit: (hash) => {
+    set({ selCommit: hash });
+    useUiStore.getState().closeStashView();
+  },
 
   saveStash: async (message, includeUntracked) => {
     const { repoId, repos } = get();
@@ -478,9 +481,10 @@ export const useReposStore = create<ReposState>((set, get) => ({
       sub: message.trim() ? `“${message.trim()}” · ${repo.name}` : repo.name,
       color: "var(--color-teal)",
     });
-    // Stashing clears the working tree — surface the new entry on the Stash tab.
-    useUiStore.getState().setTab("stash");
     await get().refresh();
+    // Stashing clears the working tree — open the new entry (most recent, so
+    // stash@{0}) in the main panel so the user sees what was set aside.
+    useUiStore.getState().openStashView(0);
   },
 
   // Stash a single file via pathspec, naming the stash after it so it's easy to
